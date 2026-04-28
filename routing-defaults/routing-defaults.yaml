@@ -98,6 +98,20 @@ cost:
   "@codex-gpt5": 4
   "@explainer": 5
 
+# USD per invocation — a *very* rough estimate used by the conductor's
+# cost-ceiling check (design-doc §10). Real model spend varies with
+# input/output length; these flat defaults exist so the ceiling has
+# something concrete to threshold on. Tune per-workspace in
+# `config.yaml` if you want tighter accuracy.
+usd_per_invocation:
+  "@claude-opus": 0.18
+  "@claude-sonnet": 0.05
+  "@claude-haiku": 0.005
+  "@gemini-pro": 0.07
+  "@gemini-flash": 0.005
+  "@codex-gpt5": 0.10
+  "@explainer": 0.18
+
 # Notes (human-readable, not parsed)
 notes: |
   Fitness ratings are considered defaults based on observed model behavior in

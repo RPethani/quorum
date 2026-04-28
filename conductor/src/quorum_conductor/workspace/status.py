@@ -6,6 +6,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..core.config import load_workspace_config
+from ..core.cost import CostSummary, compute_cost
+from ..core.routing_defaults import load_routing_defaults
 from ..paths import WorkspacePaths
 from .state import WorkspaceStateModel, load_state
 
@@ -24,6 +27,9 @@ class StatusSummary:
     ui_running: bool
     ui_pid: int | None
     stale_active_markers: list[Path]
+    cost: CostSummary
+    cost_ceiling_usd: float
+    cost_enforce: bool
 
 
 def status_summary(paths: WorkspacePaths) -> StatusSummary:
@@ -36,6 +42,11 @@ def status_summary(paths: WorkspacePaths) -> StatusSummary:
 
     conductor_pid = _read_pid(paths.conductor_pid)
     ui_pid = _read_pid(paths.ui_pid)
+
+    config = load_workspace_config(paths.config_yaml)
+    defaults = load_routing_defaults(paths.routing_defaults)
+    cost = compute_cost(paths.events_jsonl, defaults)
+
     return StatusSummary(
         paths=paths,
         state=state,
@@ -49,6 +60,9 @@ def status_summary(paths: WorkspacePaths) -> StatusSummary:
         ui_running=ui_pid is not None and _pid_alive(ui_pid),
         ui_pid=ui_pid,
         stale_active_markers=_stale_active_markers(paths),
+        cost=cost,
+        cost_ceiling_usd=config.cost_ceiling_usd,
+        cost_enforce=config.cost_enforce,
     )
 
 
@@ -89,6 +103,21 @@ def render_status(summary: StatusSummary) -> str:
     )
     lines.append(f"  conductor : {cond}")
     lines.append(f"  ui        : {ui}")
+
+    lines.append("")
+    lines.append("cost")
+    pct = summary.cost.fraction_of(summary.cost_ceiling_usd) * 100
+    enforced = "enforced" if summary.cost_enforce else "tracked, not enforced"
+    lines.append(
+        f"  spent     : ${summary.cost.spent_usd:.2f} / ${summary.cost_ceiling_usd:.2f}  "
+        f"({pct:.0f}%, {enforced})"
+    )
+    lines.append(f"  invocations : {summary.cost.invocations}")
+    if summary.cost.unknown_handles:
+        lines.append(
+            f"  note      : {len(summary.cost.unknown_handles)} handle(s) have no usd_per_invocation "
+            f"estimate ({', '.join(summary.cost.unknown_handles)}); their spend is not counted."
+        )
 
     if summary.stale_active_markers:
         lines.append("")

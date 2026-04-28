@@ -65,7 +65,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 4 — Conductor core (Python) 🟡
+## Phase 4 — Conductor core (Python) ✅
 
 **Goal.** Conductor as documented in §10. CLI commands, no UI yet, no permission broker, no fancy context surface.
 
@@ -78,8 +78,8 @@ The plan refines the build order in §14 of the design doc and the phase list in
 - 4f · loop — `start`/`pause`/`step`/`run`/`resume`, parallel invocations with per-deliberation locks. ✅
 - 4g · events — `events.jsonl` emission with the §10.5 schema. ✅
 - 4h · bootstrapper — handles deliberation #0001 (manifest creation). ✅
-- 4i · cost ceiling — per-invocation cost tracking; per-workspace ceiling enforcement (default $50, ON).
-- 4j · tests — pytest suite covering each module.
+- 4i · cost ceiling — per-invocation cost tracking; per-workspace ceiling enforcement (default $50, ON). ✅
+- 4j · tests — pytest suite covering each module. ✅
 
 **Permissions in this phase.** Pass restrictive `--allowedTools` flags where supported. Out-of-allowlist requests fail moves cleanly. Broker comes in Phase 11.
 

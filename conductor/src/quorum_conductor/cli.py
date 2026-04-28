@@ -18,6 +18,9 @@ from .core import (
     NoHandleAvailableError,
     PendingItem,
     PlanResult,
+    compute_cost,
+    load_routing_defaults,
+    load_workspace_config,
     plan,
 )
 from .events import EventLogger, RoutingDecisionEvent
@@ -236,6 +239,17 @@ def _cmd_step(args: argparse.Namespace) -> int:
     paths = _resolve_workspace(args)
     _ensure_seed(paths)
     state = load_state(paths.state_yaml)
+    config = load_workspace_config(paths.config_yaml)
+    defaults = load_routing_defaults(paths.routing_defaults)
+    if config.cost_enforce:
+        pre_cost = compute_cost(paths.events_jsonl, defaults)
+        if pre_cost.at_or_above_ceiling(config.cost_ceiling_usd):
+            print(
+                f"cost ceiling reached: ${pre_cost.spent_usd:.2f} >= "
+                f"${config.cost_ceiling_usd:.2f}. Edit config.yaml's "
+                "cost.ceiling_usd or set cost.enforce: false to override."
+            )
+            return 2
     result = plan(paths)
     runnable = result.runnable()
     if not runnable:
@@ -292,6 +306,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     stop = _install_stop_handlers()
     state = load_state(paths.state_yaml)
     events = EventLogger(paths.events_jsonl)
+    config = load_workspace_config(paths.config_yaml)
+    defaults = load_routing_defaults(paths.routing_defaults)
     idle_ticks = 0
     # Skip-list of (deliberation_id, role, move_type) tuples that already
     # failed during this run so a single bad agent does not loop forever.
@@ -300,6 +316,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
     failed_keys: set[tuple[str, str, str]] = set()
 
     while not stop["flag"]:
+        if config.cost_enforce:
+            spend = compute_cost(paths.events_jsonl, defaults)
+            if spend.at_or_above_ceiling(config.cost_ceiling_usd):
+                if not getattr(args, "detached", False):
+                    print(
+                        f"cost ceiling reached: ${spend.spent_usd:.2f} >= "
+                        f"${config.cost_ceiling_usd:.2f}. Pausing."
+                    )
+                break
+
         result = plan(paths)
         runnable = tuple(
             i

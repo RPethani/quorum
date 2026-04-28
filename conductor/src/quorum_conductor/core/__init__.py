@@ -7,6 +7,7 @@ has no notion of time or concurrency.
 
 from .config import WorkspaceConfig, load_workspace_config
 from .contributions import ContributionsView, parse_contributions
+from .cost import CostSummary, compute_cost
 from .deliberation import DeliberationMeta, DeliberationRoles, load_deliberation
 from .loop import BlockedItem, PendingItem, PlanResult, plan
 from .participants import Participant, parse_participants
@@ -29,6 +30,7 @@ __all__ = [
     "Alternative",
     "BlockedItem",
     "ContributionsView",
+    "CostSummary",
     "DeliberationMeta",
     "DeliberationRoles",
     "FullMoveValidation",
@@ -40,6 +42,7 @@ __all__ = [
     "RoutingDefaults",
     "RoutingLayer",
     "WorkspaceConfig",
+    "compute_cost",
     "load_deliberation",
     "load_routing_defaults",
     "load_workspace_config",
