@@ -1,9 +1,9 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
 
 const OPTIONS = [
   { value: "light", label: "Light", Icon: Sun },
@@ -26,7 +26,6 @@ export function ThemeToggle() {
 
   return (
     <div
-      role="radiogroup"
       aria-label="Theme"
       className="inline-flex items-center gap-0 rounded-md border border-border-default bg-elevated p-0.5"
     >
@@ -36,8 +35,7 @@ export function ThemeToggle() {
           <button
             key={value}
             type="button"
-            role="radio"
-            aria-checked={active}
+            aria-pressed={active}
             aria-label={label}
             onClick={() => setTheme(value)}
             className={cn(

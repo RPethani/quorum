@@ -1,3 +1,13 @@
+import { MoveCard } from "@/components/deliberation/move-card";
+import { CostChip } from "@/components/design-system/cost-chip";
+import { HandleAvatar } from "@/components/design-system/handle-avatar";
+import { ThemeToggle } from "@/components/design-system/theme-toggle";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input, Textarea } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowRight,
   BookOpen,
@@ -19,22 +29,6 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input, Textarea } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CostChip } from "@/components/design-system/cost-chip";
-import { HandleAvatar } from "@/components/design-system/handle-avatar";
-import { ThemeToggle } from "@/components/design-system/theme-toggle";
-import { MoveCard } from "@/components/deliberation/move-card";
 
 /**
  * Design-system showcase route (/design-system). Every atom and component
@@ -52,7 +46,10 @@ export default function DesignSystemShowcase() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <Header />
-      <Section title="Neutral scale" subtitle="Both modes use the same scale; mode flips foreground.">
+      <Section
+        title="Neutral scale"
+        subtitle="Both modes use the same scale; mode flips foreground."
+      >
         <NeutralSwatches />
       </Section>
 
@@ -92,11 +89,17 @@ export default function DesignSystemShowcase() {
         <CostChips />
       </Section>
 
-      <Section title="Custom — HandleAvatar" subtitle="Deterministic color from a fixed 8-color palette.">
+      <Section
+        title="Custom — HandleAvatar"
+        subtitle="Deterministic color from a fixed 8-color palette."
+      >
         <Avatars />
       </Section>
 
-      <Section title="Custom — MoveCard (skeleton)" subtitle="Phase 2 visual contract; Phase 7 fills it in.">
+      <Section
+        title="Custom — MoveCard (skeleton)"
+        subtitle="Phase 2 visual contract; Phase 7 fills it in."
+      >
         <MoveCards />
       </Section>
 
@@ -104,7 +107,10 @@ export default function DesignSystemShowcase() {
         <Icons />
       </Section>
 
-      <Section title="Deferred components" subtitle="Pre-declared in DESIGN_SYSTEM.md §7; built later.">
+      <Section
+        title="Deferred components"
+        subtitle="Pre-declared in DESIGN_SYSTEM.md §7; built later."
+      >
         <Deferred />
       </Section>
     </div>
@@ -115,9 +121,7 @@ function Header() {
   return (
     <header className="mb-10 flex items-start justify-between gap-6">
       <div>
-        <p className="text-xs font-medium uppercase tracking-wider text-fg-tertiary">
-          Quorum
-        </p>
+        <p className="text-xs font-medium uppercase tracking-wider text-fg-tertiary">Quorum</p>
         <h1 className="text-2xl font-bold tracking-tight">Design system — v0.1</h1>
         <p className="mt-1 text-sm text-fg-secondary">
           Verification surface for tokens and primitives. Toggle theme to inspect both modes.
@@ -270,14 +274,18 @@ function Cards() {
           <CardTitle>Elevated</CardTitle>
           <CardDescription>shadow-sm + 1px border.</CardDescription>
         </CardHeader>
-        <CardContent>For things that should feel slightly above the canvas — popovers, focused cards.</CardContent>
+        <CardContent>
+          For things that should feel slightly above the canvas — popovers, focused cards.
+        </CardContent>
       </Card>
       <Card variant="recessed">
         <CardHeader>
           <CardTitle>Recessed</CardTitle>
           <CardDescription>Recessed bg, no border.</CardDescription>
         </CardHeader>
-        <CardContent>Sub-panes, sidebars, anywhere the surface should sink rather than rise.</CardContent>
+        <CardContent>
+          Sub-panes, sidebars, anywhere the surface should sink rather than rise.
+        </CardContent>
       </Card>
     </div>
   );
@@ -287,17 +295,23 @@ function Inputs() {
   return (
     <div className="grid grid-cols-2 gap-4">
       <div className="space-y-2">
-        <label className="text-xs font-medium uppercase tracking-wider text-fg-tertiary">
+        <label
+          htmlFor="ds-input"
+          className="text-xs font-medium uppercase tracking-wider text-fg-tertiary"
+        >
           Input
         </label>
-        <Input placeholder="Type something…" />
-        <Input placeholder="Disabled" disabled />
+        <Input id="ds-input" placeholder="Type something…" />
+        <Input id="ds-input-disabled" placeholder="Disabled" disabled />
       </div>
       <div className="space-y-2">
-        <label className="text-xs font-medium uppercase tracking-wider text-fg-tertiary">
+        <label
+          htmlFor="ds-textarea"
+          className="text-xs font-medium uppercase tracking-wider text-fg-tertiary"
+        >
           Textarea
         </label>
-        <Textarea placeholder="Multi-line input…" />
+        <Textarea id="ds-textarea" placeholder="Multi-line input…" />
       </div>
     </div>
   );
@@ -425,7 +439,8 @@ function MoveCards() {
         state="complete"
       >
         <p className="font-medium">
-          Pricing tier structure: free / pro $20 / team $50; 14-day pro trial; no annual discounts in v1.
+          Pricing tier structure: free / pro $20 / team $50; 14-day pro trial; no annual discounts
+          in v1.
         </p>
       </MoveCard>
       <MoveCard
@@ -436,8 +451,8 @@ function MoveCards() {
         targets="CLARIFY@human-rohan#0014"
       >
         <p>
-          <strong>General context:</strong> tiered SaaS pricing typically uses a free tier as a top of
-          funnel and price anchors at the upper tiers.
+          <strong>General context:</strong> tiered SaaS pricing typically uses a free tier as a top
+          of funnel and price anchors at the upper tiers.
         </p>
       </MoveCard>
       <MoveCard
@@ -497,10 +512,7 @@ function Icons() {
           </p>
           <div className="flex flex-wrap items-center gap-4">
             {g.icons.map(({ Icon, name }) => (
-              <div
-                key={name}
-                className="flex flex-col items-center gap-1 text-fg-secondary"
-              >
+              <div key={name} className="flex flex-col items-center gap-1 text-fg-secondary">
                 <Icon size={20} strokeWidth={1.5} />
                 <span className="font-mono text-xs text-fg-tertiary">{name}</span>
               </div>

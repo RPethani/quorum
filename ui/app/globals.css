@@ -96,7 +96,10 @@
   }
 
   /* Headings — subtle letter-spacing tightening per DESIGN_SYSTEM.md §4 */
-  h1, h2, h3, h4 {
+  h1,
+  h2,
+  h3,
+  h4 {
     letter-spacing: -0.01em;
   }
 
@@ -107,13 +110,19 @@
   }
 
   /* Mono everywhere mono is intended */
-  code, kbd, samp, pre, .font-mono {
+  code,
+  kbd,
+  samp,
+  pre,
+  .font-mono {
     font-family: var(--font-mono);
   }
 
   /* Reduced motion — respected by anything that uses our motion tokens */
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
+    *,
+    *::before,
+    *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
@@ -123,8 +132,13 @@
 
 /* Composing-state pulse used by MoveCard (Phase 2 skeleton, Phase 7 full) */
 @keyframes quorum-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .composing-pulse {

@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
 import { HandleAvatar } from "@/components/design-system/handle-avatar";
+import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
 
 export type MoveType =
   | "PROPOSAL"

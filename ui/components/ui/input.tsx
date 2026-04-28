@@ -1,6 +1,6 @@
+import { cn } from "@/lib/utils";
 import { forwardRef } from "react";
 import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { cn } from "@/lib/utils";
 
 const fieldBase =
   "w-full rounded-sm border border-border-default bg-elevated px-3 text-sm text-fg-primary " +
@@ -11,12 +11,7 @@ const fieldBase =
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   ({ className, type = "text", ...props }, ref) => (
-    <input
-      ref={ref}
-      type={type}
-      className={cn(fieldBase, "h-9", className)}
-      {...props}
-    />
+    <input ref={ref} type={type} className={cn(fieldBase, "h-9", className)} {...props} />
   ),
 );
 Input.displayName = "Input";

@@ -25,6 +25,7 @@ from .core import (
 )
 from .events import EventLogger, RoutingDecisionEvent
 from .paths import WorkspaceNotFoundError, WorkspacePaths, require_workspace
+from .server import DEFAULT_HOST, DEFAULT_PORT, serve_forever
 from .transport.doctor import doctor_check, render_doctor_report
 from .transport.runner import run_items_sync
 from .workspace import (
@@ -166,6 +167,25 @@ def _build_parser() -> argparse.ArgumentParser:
     p_pause = sub.add_parser("pause", help="Stop the daemonised conductor.")
     _add_path(p_pause)
     p_pause.set_defaults(handler=_cmd_pause)
+
+    # serve — local HTTP for the UI.
+    p_serve = sub.add_parser(
+        "serve",
+        help="Start the local HTTP API the UI consumes (foreground).",
+    )
+    _add_path(p_serve)
+    p_serve.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"Bind host (default: {DEFAULT_HOST}).",
+    )
+    p_serve.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Bind port (default: {DEFAULT_PORT}).",
+    )
+    p_serve.set_defaults(handler=_cmd_serve)
 
     return parser
 
@@ -401,6 +421,22 @@ def _cmd_pause(args: argparse.Namespace) -> int:
         return 0
     print(f"conductor (pid {pid}) stopped.")
     _transition_to(paths, WorkspaceState.PAUSED)
+    return 0
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+
+    def _on_listen(addr: tuple[str, int]) -> None:
+        host, port = addr
+        print(f"quorum http on http://{host}:{port}  (workspace: {paths.root})")
+        print("Ctrl-C to stop.")
+
+    try:
+        serve_forever(paths, host=args.host, port=args.port, on_listen=_on_listen)
+    except KeyboardInterrupt:
+        print()
+        print("server stopped.")
     return 0
 
 

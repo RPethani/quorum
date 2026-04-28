@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { ThemeToggle } from "@/components/design-system/theme-toggle";
+import Link from "next/link";
 
 export default function HomePage() {
   return (
@@ -15,19 +15,29 @@ export default function HomePage() {
       </div>
 
       <p className="mt-8 text-sm text-fg-secondary">
-        Quorum is under construction. The product UI ships in later phases. For now, this app
-        hosts the design-system showcase — the verification surface for the foundational tokens
-        and primitives.
+        Quorum is under construction. The product UI ships in later phases. For now, this app hosts
+        the design-system showcase — the verification surface for the foundational tokens and
+        primitives.
       </p>
 
-      <div className="mt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         <Link
           href="/design-system"
           className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
         >
           Open the design-system showcase →
         </Link>
+        <Link
+          href="/dev-vertical-slice"
+          className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
+        >
+          Open the dev-only vertical slice →
+        </Link>
       </div>
+      <p className="mt-3 text-xs text-fg-tertiary">
+        The vertical slice expects a running conductor:{" "}
+        <code className="font-mono">quorum serve</code>.
+      </p>
     </main>
   );
 }

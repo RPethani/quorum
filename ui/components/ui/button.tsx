@@ -1,6 +1,6 @@
+import { cn } from "@/lib/utils";
 import { forwardRef } from "react";
 import type { ButtonHTMLAttributes } from "react";
-import { cn } from "@/lib/utils";
 
 type Variant = "default" | "primary" | "outline" | "ghost" | "destructive";
 type Size = "sm" | "md" | "lg" | "icon";
@@ -18,10 +18,8 @@ const base =
 const variants: Record<Variant, string> = {
   default:
     "bg-neutral-900 text-neutral-50 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-950 dark:hover:bg-neutral-200",
-  primary:
-    "bg-accent-primary text-white hover:opacity-90 dark:text-neutral-950",
-  outline:
-    "border border-border-default bg-transparent text-fg-primary hover:bg-recessed",
+  primary: "bg-accent-primary text-white hover:opacity-90 dark:text-neutral-950",
+  outline: "border border-border-default bg-transparent text-fg-primary hover:bg-recessed",
   ghost: "bg-transparent text-fg-primary hover:bg-recessed",
   destructive: "bg-accent-danger text-white hover:opacity-90",
 };

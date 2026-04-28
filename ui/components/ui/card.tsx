@@ -1,6 +1,6 @@
+import { cn } from "@/lib/utils";
 import { forwardRef } from "react";
 import type { HTMLAttributes } from "react";
-import { cn } from "@/lib/utils";
 
 type Variant = "default" | "elevated" | "recessed";
 
@@ -34,17 +34,17 @@ CardHeader.displayName = "CardHeader";
 
 export const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    // biome-ignore lint/a11y/useHeadingContent: title content is provided by consumer
     <h3 ref={ref} className={cn("text-lg font-semibold", className)} {...props} />
   ),
 );
 CardTitle.displayName = "CardTitle";
 
-export const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLParagraphElement>>(
-  ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn("text-sm text-fg-secondary", className)} {...props} />
-  ),
-);
+export const CardDescription = forwardRef<
+  HTMLParagraphElement,
+  HTMLAttributes<HTMLParagraphElement>
+>(({ className, ...props }, ref) => (
+  <p ref={ref} className={cn("text-sm text-fg-secondary", className)} {...props} />
+));
 CardDescription.displayName = "CardDescription";
 
 export const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
