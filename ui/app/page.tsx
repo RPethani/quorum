@@ -22,7 +22,7 @@ export default function HomePage() {
 
       <div className="mt-6">
         <Link
-          href="/_design-system"
+          href="/design-system"
           className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
         >
           Open the design-system showcase →

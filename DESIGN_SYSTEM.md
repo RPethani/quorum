@@ -233,7 +233,7 @@ Avoid icon-only buttons except in tightly-constrained spaces (toolbars, table ac
 - User can override via a toggle in the workspace header — three states: `light`, `dark`, `system`.
 - Preference persists in localStorage.
 - **No flash of incorrect theme** — `next-themes` handles SSR/CSR mismatch via `suppressHydrationWarning`.
-- Every component must be tested in both modes during development. The `_design-system` showcase route is the verification surface.
+- Every component must be tested in both modes during development. The `/design-system` showcase route is the verification surface.
 
 ---
 

@@ -48,9 +48,9 @@ The plan refines the build order in §14 of the design doc and the phase list in
 - `ui/components/design-system/tokens.css` — CSS custom properties for both modes.
 - `ui/components/design-system/theme-provider.tsx` — `next-themes` wrapper with our defaults.
 - `ui/tailwind.config.ts` — wired to consume tokens via `@theme`.
-- `ui/app/_design-system/page.tsx` — private dev-only showcase rendering every atom and component variant in both modes.
+- `ui/app/design-system/page.tsx` — showcase route rendering every atom and component variant in both modes. (The bootstrap suggested `_design-system`, but Next.js App Router treats `_`-prefixed folders as non-routable private folders; renamed per `docs/decisions/001-design-system-route-name.md`.)
 
-**Validation gate.** User runs the UI dev server, opens `/_design-system`, and confirms the system feels right in light and dark modes.
+**Validation gate.** User runs the UI dev server, opens `/design-system`, and confirms the system feels right in light and dark modes.
 
 ---
 

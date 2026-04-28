@@ -37,10 +37,12 @@ import { ThemeToggle } from "@/components/design-system/theme-toggle";
 import { MoveCard } from "@/components/deliberation/move-card";
 
 /**
- * Private dev-only showcase route. Every atom and component variant the
- * design system currently ships, rendered side-by-side so light and dark
- * modes can be flipped via the toggle in the header. This is the
- * verification surface for Phase 2.
+ * Design-system showcase route (/design-system). Every atom and component
+ * variant the design system currently ships, rendered side-by-side so
+ * light and dark modes can be flipped via the toggle in the header. This
+ * is the verification surface for Phase 2. Not gated in v1 — the UI
+ * only runs on a local dev server, which is the only place this surface
+ * exists at all.
  *
  * Components NOT yet shipped are listed at the bottom under "Deferred"
  * with the phase that introduces them; they are pre-declared in
