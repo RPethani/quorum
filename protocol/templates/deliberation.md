@@ -5,7 +5,7 @@ agent opening a child deliberation). The Contributions section is the
 append-only log of moves; the rest of the file is largely metadata.
 -->
 ---
-id: 0001
+id: "0001"              # quoted: YAML 1.1 reads bare 0001 as octal
 title: <one-line question this deliberation answers>
 status: DRAFT
 protocol_version: 0.1

@@ -11,7 +11,7 @@ Status:
   provisional  — issued by a DEPUTY_DECISION pending human ratification
 -->
 ---
-id: ADR-0001
+id: "ADR-0001"
 title: <decision name in plain language>
 status: confirmed             # confirmed | provisional
 protocol_version: 0.1

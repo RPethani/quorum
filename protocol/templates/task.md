@@ -9,7 +9,7 @@ Quorum to execute. The `assigned_to` field is free-form text identifying
 who picks it up; agents do not self-assign or execute tasks in v1.
 -->
 ---
-id: TASK-0001
+id: "TASK-0001"
 title: <one-line action>
 status: open                  # open | in_progress | blocked | done | abandoned
 priority: medium              # high | medium | low
