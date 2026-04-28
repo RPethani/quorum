@@ -20,6 +20,7 @@ from .core import (
     parse_participants,
     route,
 )
+from .events import EventLogger, RoutingDecisionEvent
 from .paths import WorkspaceNotFoundError, WorkspacePaths, require_workspace
 from .transport.doctor import doctor_check, render_doctor_report
 from .transport.invoker import InvocationRequest, invoke
@@ -247,6 +248,27 @@ def _cmd_step(args: argparse.Namespace) -> int:
         config=config,
         defaults=defaults,
     )
+    events = EventLogger(paths.events_jsonl)
+    events.emit(
+        RoutingDecisionEvent(
+            handle=decision.handle,
+            role=decision.role,
+            deliberation_id=decision.deliberation_id,
+            layer=decision.layer.value,
+            fitness=decision.fitness,
+            cost=decision.cost,
+            alternatives=[
+                {
+                    "handle": a.handle,
+                    "fitness": a.fitness,
+                    "cost": a.cost,
+                    "rejected_because": a.rejected_because,
+                }
+                for a in decision.alternatives
+            ],
+            note=decision.note,
+        )
+    )
     print(
         f"routed {args.role!r} → {decision.handle} "
         f"(layer={decision.layer.value}, fitness={decision.fitness}, cost={decision.cost})"
@@ -278,7 +300,7 @@ def _cmd_step(args: argparse.Namespace) -> int:
         deliberation_path=deliberation_path,
         mode=state.mode.value,
     )
-    result = invoke(request, paths)
+    result = invoke(request, paths, events=events)
 
     print(f"status   : {result.status}")
     print(f"duration : {result.duration_s:.1f}s")

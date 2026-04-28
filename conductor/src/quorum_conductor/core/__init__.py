@@ -16,11 +16,18 @@ from .routing import (
     route,
 )
 from .routing_defaults import RoutingDefaults, load_routing_defaults
+from .validator import (
+    FullMoveValidation,
+    render_validation_feedback,
+    required_sections_for,
+    validate_move,
+)
 
 __all__ = [
     "Alternative",
     "DeliberationMeta",
     "DeliberationRoles",
+    "FullMoveValidation",
     "NoHandleAvailableError",
     "Participant",
     "RoutingDecision",
@@ -31,5 +38,8 @@ __all__ = [
     "load_routing_defaults",
     "load_workspace_config",
     "parse_participants",
+    "render_validation_feedback",
+    "required_sections_for",
     "route",
+    "validate_move",
 ]

@@ -1,28 +1,28 @@
 """Invoke a single CLI agent and append the result to a deliberation.
 
-The full per-invocation contract is in design-doc §10. Phase 4d
-implements the structural skeleton:
+The full per-invocation contract is in design-doc §10. This module
+implements:
 
   1. render the prompt for (handle, role, deliberation, mode)
-  2. touch a lifecycle marker in /runtime/active/
-  3. spawn the CLI subprocess; pipe the prompt on stdin; capture stdout
-  4. write the captured stream to /runtime/streams/<...>.stream
-  5. acquire the per-deliberation lock
-  6. minimal structural validation (header line + known move type)
-  7. append the move to the deliberation file
-  8. propagate `@handle` mentions to inboxes
-  9. release the lock
- 10. on success: remove the active marker and stream buffer
-     on failure: leave the active marker, move the stream into
-                 /runtime/streams/failed/ for diagnosis
-
-Phase 4e adds full per-section validation and a one-retry path. Phase
-4g lights up `events.jsonl`. Phase 4f wraps this in the parallel async
-loop. Until then this is a clean synchronous API the loop can call.
+  2. emit `agent_started`
+  3. touch a lifecycle marker in /runtime/active/
+  4. spawn the CLI subprocess; pipe the prompt on stdin; capture stdout
+  5. write the captured stream to /runtime/streams/<...>.stream
+  6. acquire the per-deliberation lock
+  7. full structural + anti-vacuousness validation (4e)
+     - on failure: emit `validation_failed`, retry once with feedback
+  8. append the move to the deliberation file
+  9. propagate `@handle` mentions to inboxes
+ 10. release the lock
+ 11. on success: emit `move_appended` + `agent_completed`; remove
+                 the active marker and stream buffer
+     on failure: emit `agent_failed`; leave the active marker; move the
+                 stream into /runtime/streams/failed/ for diagnosis
 """
 
 from __future__ import annotations
 
+import contextlib
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -31,9 +31,22 @@ from pathlib import Path
 from typing import Literal
 
 from ..core.deliberation import DeliberationMeta
-from ..core.move_format import MoveValidation, validate_minimal
+from ..core.move_format import MoveValidation
 from ..core.participants import Participant
 from ..core.prompts import PromptInputs, render_prompt
+from ..core.validator import (
+    FullMoveValidation,
+    render_validation_feedback,
+    validate_move,
+)
+from ..events import (
+    AgentCompleted,
+    AgentFailed,
+    AgentStarted,
+    EventLogger,
+    MoveAppended,
+    ValidationFailed,
+)
 from ..paths import WorkspacePaths
 from ..workspace.deliberation_file import (
     AppendError,
@@ -43,6 +56,7 @@ from ..workspace.deliberation_file import (
 from .locks import deliberation_lock
 
 DEFAULT_TIMEOUT_S: float = 600.0
+DEFAULT_MAX_ATTEMPTS: int = 2  # 1 original + 1 retry on validation failure
 
 
 @dataclass(frozen=True)
@@ -55,6 +69,7 @@ class InvocationRequest:
     mode: str  # "interactive" | "autonomous"
     deputy_active: bool = False
     timeout_s: float = DEFAULT_TIMEOUT_S
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
 
 
 @dataclass(frozen=True)
@@ -68,138 +83,302 @@ class InvocationResult:
     stdout: str
     stderr: str
     return_code: int | None
-    validation: MoveValidation | None
+    validation: FullMoveValidation | MoveValidation | None
     appended: bool
     inboxes_notified: list[str]
     error: str | None
+    attempts: int
 
 
 def invoke(
     request: InvocationRequest,
     paths: WorkspacePaths,
+    *,
+    events: EventLogger | None = None,
 ) -> InvocationResult:
-    """Run one full invocation. Returns a structured result; never raises
-    for ordinary failure modes (subprocess, validation, timeout) — only
-    for unexpected programmer errors."""
+    """Run one full invocation. Retries once on validation failure.
 
+    Returns a structured `InvocationResult`; never raises for ordinary
+    failure modes (subprocess, validation, timeout) — only for unexpected
+    programmer errors.
+    """
+    logger = events or EventLogger(paths.events_jsonl)
     started = datetime.now(UTC)
     marker = _marker_path(paths, request)
     stream = _stream_path(paths, request)
     _touch(marker)
 
-    try:
-        prompt = render_prompt(
-            PromptInputs(
-                handle=request.handle,
+    last_result: InvocationResult | None = None
+    feedback: str | None = None
+
+    for attempt in range(1, request.max_attempts + 1):
+        logger.emit(
+            AgentStarted(
+                handle=request.handle.handle,
                 role=request.role,
-                deliberation=request.deliberation,
-                mode=request.mode,
-                standing_prompt_path=paths.agent_standing_prompt,
-                overrides_dir=paths.prompts_overrides,
-                workspace_root=paths.root,
-                deputy_active=request.deputy_active,
+                deliberation_id=request.deliberation.id,
                 move_type=request.move_type,
+                attempt=attempt,
+            )
+        )
+        attempt_started = datetime.now(UTC)
+        outcome = _run_attempt(
+            request=request,
+            paths=paths,
+            stream_path=stream,
+            attempt=attempt,
+            feedback=feedback,
+        )
+
+        duration_s = (datetime.now(UTC) - attempt_started).total_seconds()
+
+        if outcome.status == "ok":
+            assert outcome.validation is not None and outcome.validation.header is not None
+            logger.emit(
+                MoveAppended(
+                    handle=outcome.validation.header.author,
+                    role=request.role,
+                    deliberation_id=request.deliberation.id,
+                    move_type=outcome.validation.header.move_type,
+                    inboxes_notified=list(outcome.inboxes_notified),
+                )
+            )
+            logger.emit(
+                AgentCompleted(
+                    handle=request.handle.handle,
+                    role=request.role,
+                    deliberation_id=request.deliberation.id,
+                    move_type=outcome.validation.header.move_type,
+                    duration_s=duration_s,
+                    return_code=outcome.return_code or 0,
+                    attempt=attempt,
+                    stdout_chars=len(outcome.stdout),
+                )
+            )
+            _remove_quietly(marker)
+            _remove_quietly(stream)
+            total = (datetime.now(UTC) - started).total_seconds()
+            return InvocationResult(
+                status="ok",
+                handle=request.handle.handle,
+                role=request.role,
+                move_type=outcome.validation.header.move_type,
+                deliberation_id=request.deliberation.id,
+                duration_s=total,
+                stdout=outcome.stdout,
+                stderr=outcome.stderr,
+                return_code=outcome.return_code,
+                validation=outcome.validation,
+                appended=True,
+                inboxes_notified=outcome.inboxes_notified,
+                error=None,
+                attempts=attempt,
+            )
+
+        # Failed attempt — emit the appropriate event and decide whether to retry.
+        if outcome.status == "validation_failed":
+            assert outcome.validation is not None
+            logger.emit(
+                ValidationFailed(
+                    handle=request.handle.handle,
+                    role=request.role,
+                    deliberation_id=request.deliberation.id,
+                    move_type=request.move_type,
+                    errors=list(outcome.validation.errors),
+                    attempt=attempt,
+                )
+            )
+        else:
+            logger.emit(
+                AgentFailed(
+                    handle=request.handle.handle,
+                    role=request.role,
+                    deliberation_id=request.deliberation.id,
+                    move_type=request.move_type,
+                    duration_s=duration_s,
+                    reason=outcome.status,
+                    error=outcome.error or "",
+                    attempt=attempt,
+                    return_code=outcome.return_code,
+                )
+            )
+
+        last_result = outcome
+
+        # Only validation failures trigger a retry; subprocess/timeout errors
+        # are not the agent's fault to recover from in the same loop.
+        if outcome.status != "validation_failed" or attempt >= request.max_attempts:
+            break
+
+        feedback = render_validation_feedback(outcome.validation)  # type: ignore[arg-type]
+
+    # Emit the terminal `agent_failed` event so consumers see one failure
+    # event per request, not just per attempt. The per-attempt events are
+    # additive context.
+    assert last_result is not None
+    total_duration = (datetime.now(UTC) - started).total_seconds()
+    if last_result.status != "ok":
+        logger.emit(
+            AgentFailed(
+                handle=request.handle.handle,
+                role=request.role,
+                deliberation_id=request.deliberation.id,
+                move_type=request.move_type,
+                duration_s=total_duration,
+                reason=last_result.status,
+                error=last_result.error or "",
+                attempt=last_result.attempts,
+                return_code=last_result.return_code,
             )
         )
 
-        try:
-            proc = _spawn(request.handle.cli_command, prompt, request.timeout_s)
-        except subprocess.TimeoutExpired as exc:
-            _move_stream_to_failed(stream, paths, "timeout")
-            return _failure(
-                request,
-                started,
-                status="timeout",
-                stdout=exc.stdout.decode("utf-8", "replace") if exc.stdout else "",
-                stderr=exc.stderr.decode("utf-8", "replace") if exc.stderr else "",
-                error=f"subprocess timed out after {request.timeout_s}s",
-            )
-        except FileNotFoundError as exc:
-            return _failure(
-                request,
-                started,
-                status="subprocess_failed",
-                stdout="",
-                stderr="",
-                error=f"command not on PATH: {exc.filename}",
-            )
+    return InvocationResult(
+        status=last_result.status,
+        handle=last_result.handle,
+        role=last_result.role,
+        move_type=last_result.move_type,
+        deliberation_id=last_result.deliberation_id,
+        duration_s=total_duration,
+        stdout=last_result.stdout,
+        stderr=last_result.stderr,
+        return_code=last_result.return_code,
+        validation=last_result.validation,
+        appended=last_result.appended,
+        inboxes_notified=last_result.inboxes_notified,
+        error=last_result.error,
+        attempts=last_result.attempts,
+    )
 
-        stream.parent.mkdir(parents=True, exist_ok=True)
-        stream.write_text(proc.stdout, encoding="utf-8")
 
-        if proc.returncode != 0:
-            _move_stream_to_failed(stream, paths, "nonzero_exit")
-            return _failure(
-                request,
-                started,
-                status="subprocess_failed",
-                stdout=proc.stdout,
-                stderr=proc.stderr,
-                return_code=proc.returncode,
-                error=f"agent exited with code {proc.returncode}",
-            )
+# ---------------------------------------------------------------------- #
+# Single attempt
+# ---------------------------------------------------------------------- #
 
-        validation = validate_minimal(proc.stdout, expected_move_type=request.move_type)
-        if not validation.ok or validation.header is None:
-            _move_stream_to_failed(stream, paths, "validation_failed")
-            return _failure(
-                request,
-                started,
-                status="validation_failed",
-                stdout=proc.stdout,
-                stderr=proc.stderr,
-                return_code=proc.returncode,
-                validation=validation,
-                error="; ".join(validation.errors) or "validation failed",
-            )
 
-        try:
-            with deliberation_lock(request.deliberation_path):
-                append_move(request.deliberation_path, proc.stdout)
-                tagged = update_inboxes_from_move(
-                    proc.stdout,
-                    inbox_dir=paths.inbox,
-                    deliberation_id=request.deliberation.id,
-                    move_type=validation.header.move_type,
-                    author=validation.header.author,
-                )
-        except AppendError as exc:
-            _move_stream_to_failed(stream, paths, "append_failed")
-            return _failure(
-                request,
-                started,
-                status="validation_failed",
-                stdout=proc.stdout,
-                stderr=proc.stderr,
-                return_code=proc.returncode,
-                validation=validation,
-                error=str(exc),
-            )
-
-        # Success: clean up artefacts.
-        _remove_quietly(marker)
-        _remove_quietly(stream)
-        return InvocationResult(
-            status="ok",
-            handle=request.handle.handle,
+def _run_attempt(
+    *,
+    request: InvocationRequest,
+    paths: WorkspacePaths,
+    stream_path: Path,
+    attempt: int,
+    feedback: str | None,
+) -> InvocationResult:
+    started = datetime.now(UTC)
+    prompt = render_prompt(
+        PromptInputs(
+            handle=request.handle,
             role=request.role,
-            move_type=validation.header.move_type,
-            deliberation_id=request.deliberation.id,
-            duration_s=(datetime.now(UTC) - started).total_seconds(),
+            deliberation=request.deliberation,
+            mode=request.mode,
+            standing_prompt_path=paths.agent_standing_prompt,
+            overrides_dir=paths.prompts_overrides,
+            workspace_root=paths.root,
+            deputy_active=request.deputy_active,
+            move_type=request.move_type,
+        )
+    )
+    if feedback:
+        prompt = prompt + "\n\n## RETRY FEEDBACK\n\n" + feedback + "\n"
+
+    try:
+        proc = _spawn(request.handle.cli_command, prompt, request.timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        _move_stream_to_failed(stream_path, paths, "timeout")
+        return _failure(
+            request,
+            started,
+            attempt=attempt,
+            status="timeout",
+            stdout=exc.stdout.decode("utf-8", "replace") if exc.stdout else "",
+            stderr=exc.stderr.decode("utf-8", "replace") if exc.stderr else "",
+            error=f"subprocess timed out after {request.timeout_s}s",
+        )
+    except FileNotFoundError as exc:
+        return _failure(
+            request,
+            started,
+            attempt=attempt,
+            status="subprocess_failed",
+            stdout="",
+            stderr="",
+            error=f"command not on PATH: {exc.filename}",
+        )
+
+    stream_path.parent.mkdir(parents=True, exist_ok=True)
+    stream_path.write_text(proc.stdout, encoding="utf-8")
+
+    if proc.returncode != 0:
+        _move_stream_to_failed(stream_path, paths, "nonzero_exit")
+        return _failure(
+            request,
+            started,
+            attempt=attempt,
+            status="subprocess_failed",
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            return_code=proc.returncode,
+            error=f"agent exited with code {proc.returncode}",
+        )
+
+    validation = validate_move(
+        proc.stdout,
+        expected_move_type=request.move_type,
+        templates_dir=paths.protocol_templates,
+    )
+    if not validation.ok or validation.header is None:
+        _move_stream_to_failed(stream_path, paths, "validation_failed")
+        return _failure(
+            request,
+            started,
+            attempt=attempt,
+            status="validation_failed",
             stdout=proc.stdout,
             stderr=proc.stderr,
             return_code=proc.returncode,
             validation=validation,
-            appended=True,
-            inboxes_notified=tagged,
-            error=None,
+            error=validation.reasons() if validation.errors else "validation failed",
         )
 
-    finally:
-        # The marker is removed on success above; on failure it stays so
-        # the user can see the failed invocation in `quorum status`. The
-        # stale-marker reaper (Phase 4f) cleans up after 15 minutes.
-        pass
+    try:
+        with deliberation_lock(request.deliberation_path):
+            append_move(request.deliberation_path, proc.stdout)
+            tagged = update_inboxes_from_move(
+                proc.stdout,
+                inbox_dir=paths.inbox,
+                deliberation_id=request.deliberation.id,
+                move_type=validation.header.move_type,
+                author=validation.header.author,
+            )
+    except AppendError as exc:
+        _move_stream_to_failed(stream_path, paths, "append_failed")
+        return _failure(
+            request,
+            started,
+            attempt=attempt,
+            status="validation_failed",
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            return_code=proc.returncode,
+            validation=validation,
+            error=str(exc),
+        )
+
+    return InvocationResult(
+        status="ok",
+        handle=request.handle.handle,
+        role=request.role,
+        move_type=validation.header.move_type,
+        deliberation_id=request.deliberation.id,
+        duration_s=(datetime.now(UTC) - started).total_seconds(),
+        stdout=proc.stdout,
+        stderr=proc.stderr,
+        return_code=proc.returncode,
+        validation=validation,
+        appended=True,
+        inboxes_notified=tagged,
+        error=None,
+        attempts=attempt,
+    )
 
 
 # ---------------------------------------------------------------------- #
@@ -237,8 +416,6 @@ def _touch(path: Path) -> None:
 
 
 def _remove_quietly(path: Path) -> None:
-    import contextlib
-
     with contextlib.suppress(FileNotFoundError):
         path.unlink()
 
@@ -255,12 +432,13 @@ def _failure(
     request: InvocationRequest,
     started: datetime,
     *,
+    attempt: int,
     status: Literal["validation_failed", "subprocess_failed", "timeout"],
     stdout: str,
     stderr: str,
     error: str,
     return_code: int | None = None,
-    validation: MoveValidation | None = None,
+    validation: FullMoveValidation | MoveValidation | None = None,
 ) -> InvocationResult:
     return InvocationResult(
         status=status,
@@ -276,4 +454,5 @@ def _failure(
         appended=False,
         inboxes_notified=[],
         error=error,
+        attempts=attempt,
     )
