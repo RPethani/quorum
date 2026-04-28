@@ -8,7 +8,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 0 — Plan & repo skeleton 🟡
+## Phase 0 — Plan & repo skeleton ✅
 
 **Goal.** Produce planning artifacts and the bare repo structure. No code.
 
@@ -24,7 +24,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 1 — Protocol artifacts (no code) ⬜
+## Phase 1 — Protocol artifacts (no code) 🟡
 
 **Goal.** Produce all static protocol files (Markdown / YAML).
 

@@ -1,0 +1,111 @@
+schema_version: 0.1
+generated: 2026-04-28
+source: https://github.com/<owner>/quorum/blob/main/routing-defaults/routing-defaults.yaml
+
+# Fitness ratings: per-handle, per-role, scale 0-3
+#   0 = not suitable for this role
+#   1 = low      (use only when no better option is available)
+#   2 = medium   (acceptable workhorse)
+#   3 = high     (strong fit; preferred when available)
+#
+# Roles (see PROTOCOL.md §2 and design doc §3):
+#   proposer       — drafts the initial position
+#   critic         — finds flaws, missing cases, weak arguments
+#   synthesizer    — reconciles competing views into a coherent recommendation
+#   specifier      — turns a synthesis into concrete specs/ADRs/tasks
+#   reviewer       — final pass before human approval
+#   domain_expert  — narrow expertise (security, UX, perf, etc.)
+#   bootstrapper   — drafts the workspace's first manifest
+#   explainer      — answers CLARIFY moves with grounded EXPLANATION moves
+
+fitness:
+  "@claude-opus":
+    proposer: 3
+    critic: 2
+    synthesizer: 3
+    specifier: 3
+    reviewer: 3
+    domain_expert: 3
+    bootstrapper: 3
+    explainer: 3
+  "@claude-sonnet":
+    proposer: 2
+    critic: 2
+    synthesizer: 2
+    specifier: 3
+    reviewer: 2
+    domain_expert: 2
+    bootstrapper: 2
+    explainer: 2
+  "@claude-haiku":
+    proposer: 1
+    critic: 1
+    synthesizer: 1
+    specifier: 2
+    reviewer: 1
+    domain_expert: 1
+    bootstrapper: 1
+    explainer: 2
+  "@gemini-pro":
+    proposer: 2
+    critic: 3        # Gemini's adversarial framing tends to be sharper
+    synthesizer: 2
+    specifier: 2
+    reviewer: 2
+    domain_expert: 2
+    bootstrapper: 2
+    explainer: 2
+  "@gemini-flash":
+    proposer: 1
+    critic: 1
+    synthesizer: 1
+    specifier: 2
+    reviewer: 1
+    domain_expert: 1
+    bootstrapper: 1
+    explainer: 1
+  "@codex-gpt5":
+    proposer: 2
+    critic: 2
+    synthesizer: 2
+    specifier: 3        # particularly good at concrete spec output
+    reviewer: 2
+    domain_expert: 2
+    bootstrapper: 2
+    explainer: 2
+  "@explainer":
+    # A canonical "explainer-only" alias. Useful when a workspace wants
+    # CLARIFY traffic to inherit explainer-strong fitness without committing
+    # to a specific underlying handle. Inherits from @claude-opus by default
+    # when registered via participants.md.
+    proposer: 0
+    critic: 0
+    synthesizer: 0
+    specifier: 0
+    reviewer: 0
+    domain_expert: 2
+    bootstrapper: 0
+    explainer: 3
+
+# Cost ratings — relative, used only as a tie-breaker when fitness is equal.
+# Lower is cheaper. Numbers are ordinal, not dollars.
+cost:
+  "@claude-opus": 5
+  "@claude-sonnet": 2
+  "@claude-haiku": 1
+  "@gemini-pro": 3
+  "@gemini-flash": 1
+  "@codex-gpt5": 4
+  "@explainer": 5
+
+# Notes (human-readable, not parsed)
+notes: |
+  Fitness ratings are considered defaults based on observed model behavior in
+  reasoning workflows. They are refreshed from upstream on `quorum init` and
+  `quorum refresh-defaults`; user overrides live in /quorum/config.yaml and
+  are never touched by refresh.
+
+  Custom or multi-account handles (e.g. @claude-work-opus) inherit fitness
+  from a canonical handle declared in participants.md via the
+  `inherits_fitness_from` field. The default for a handle whose name matches
+  a canonical prefix (e.g. anything ending in `-opus`) is the obvious match.
