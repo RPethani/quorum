@@ -82,6 +82,43 @@ def find_first_header(text: str) -> MoveHeader | None:
     return None
 
 
+# Patterns the response must NOT contain before the canonical header.
+# We tolerate leading whitespace and a single optional code-fence opener
+# (e.g., ```` ```markdown ```` ) plus a closing fence at the very end —
+# many LLMs reflexively wrap structured output in fences. Anything else
+# before the header is a validation failure: the standing prompt is
+# explicit that the move must be the entire response.
+_FENCE_OPEN_RE = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*\n", re.MULTILINE)
+_FENCE_CLOSE_RE = re.compile(r"\n\s*```\s*$")
+
+
+def strip_optional_code_fence(text: str) -> str:
+    """Strip a single ```lang ... ``` fence wrapping the entire response.
+
+    Idempotent: if no fence is present, returns the input unchanged. Used
+    by the validator on the way in to handle the common LLM habit of
+    wrapping structured output in a Markdown code fence even when the
+    prompt forbids it.
+    """
+    stripped = text.strip()
+    open_match = _FENCE_OPEN_RE.match(stripped)
+    if open_match is None:
+        return text
+    close_match = _FENCE_CLOSE_RE.search(stripped)
+    if close_match is None:
+        return text
+    return stripped[open_match.end() : close_match.start()]
+
+
+def starts_with_canonical_header(text: str) -> bool:
+    """True if `text` begins with the canonical header (after optional whitespace)."""
+    cleaned = text.lstrip()
+    if not cleaned:
+        return False
+    first_line, _, _ = cleaned.partition("\n")
+    return parse_header(first_line) is not None
+
+
 def is_known_move_type(move_type: str) -> bool:
     return move_type in KNOWN_MOVE_TYPES
 
@@ -94,24 +131,41 @@ class MoveValidation:
 
 
 def validate_minimal(text: str, *, expected_move_type: str | None = None) -> MoveValidation:
-    """Phase-4d validation: header present, recognised type, body non-empty.
+    """Phase-4d validation: response starts with a canonical header,
+    recognised move type, body non-empty.
 
-    Full per-section validation (Alternatives I considered, Summary line,
-    EXPLANATION grounding, etc.) lands in Phase 4e and supersedes this.
+    Strips an optional single code-fence wrapper before checking. Per the
+    Phase-5 vertical-slice findings, we *require* the move to be at the
+    start of the response — agents that emit prose preamble before the
+    header must retry. Full per-section validation lives in Phase 4e and
+    supersedes this; the minimal step is structural only.
     """
     errors: list[str] = []
     if not text.strip():
         return MoveValidation(ok=False, header=None, errors=["empty output"])
 
-    header = find_first_header(text)
+    cleaned = strip_optional_code_fence(text)
+
+    if not starts_with_canonical_header(cleaned):
+        return MoveValidation(
+            ok=False,
+            header=find_first_header(cleaned),
+            errors=[
+                "response must start with the canonical move header — "
+                "no preamble, no \"here is the move\" prose, no fenced code blocks. "
+                "Expected first non-whitespace line: "
+                "`### [MOVE_TYPE] @author · ISO-8601-timestamp`."
+            ],
+        )
+
+    header = find_first_header(cleaned)
     if header is None:
+        # `starts_with_canonical_header` above already guaranteed this is
+        # not None; the explicit check satisfies type checkers.
         return MoveValidation(
             ok=False,
             header=None,
-            errors=[
-                "no canonical move header found "
-                "(expected `### [MOVE_TYPE] @author · ISO-8601-timestamp`)",
-            ],
+            errors=["no canonical move header found"],
         )
 
     if not is_known_move_type(header.move_type):

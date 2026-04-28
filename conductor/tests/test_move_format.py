@@ -64,7 +64,7 @@ def test_validate_minimal_rejects_missing_header() -> None:
     v = validate_minimal("just some prose, no header")
     assert not v.ok
     assert v.header is None
-    assert any("no canonical move header" in e for e in v.errors)
+    assert any("must start with the canonical move header" in e for e in v.errors)
 
 
 def test_validate_minimal_rejects_unknown_type() -> None:
@@ -91,3 +91,53 @@ def test_validate_minimal_rejects_empty() -> None:
 def test_is_known_move_type() -> None:
     assert is_known_move_type("PROPOSAL")
     assert not is_known_move_type("UNRELATED")
+
+
+def test_validate_minimal_rejects_preamble_before_header() -> None:
+    """Phase-5 vertical slice surfaced this: agents emit prose like
+    'Here is the move I composed' before the canonical header, then
+    embed the move in a code fence. Validator must reject."""
+    body = (
+        "Write permissions are being blocked. Here is the complete PROPOSAL move:\n\n"
+        "### [PROPOSAL] @claude-sonnet · 2026-04-29T00:00:00Z\n\n"
+        "## Position\n\nShip trial-only.\n"
+    )
+    v = validate_minimal(body, expected_move_type="PROPOSAL")
+    assert not v.ok
+    assert any("must start with the canonical move header" in e for e in v.errors)
+
+
+def test_validate_minimal_strips_optional_code_fence() -> None:
+    """Agents that wrap the entire move in a single ```markdown ... ```
+    fence pass — we strip the fence rather than reject. The standing
+    prompt forbids it, but charity is cheaper than a retry."""
+    body = (
+        "```markdown\n"
+        "### [PROPOSAL] @claude-opus · 2026-04-28T14:32:18Z\n\n"
+        "## Position\n\nShip trial-only.\n"
+        "```\n"
+    )
+    v = validate_minimal(body, expected_move_type="PROPOSAL")
+    assert v.ok, v.errors
+    assert v.header is not None
+    assert v.header.move_type == "PROPOSAL"
+
+
+def test_strip_optional_code_fence_idempotent_on_unfenced() -> None:
+    from quorum_conductor.core.move_format import strip_optional_code_fence
+
+    body = "### [PROPOSAL] @x · 2026-04-28T00:00:00Z\n\n## Position\n\nbody\n"
+    assert strip_optional_code_fence(body) == body
+
+
+def test_starts_with_canonical_header_helper() -> None:
+    from quorum_conductor.core.move_format import starts_with_canonical_header
+
+    assert starts_with_canonical_header(
+        "### [PROPOSAL] @x · 2026-04-28T00:00:00Z\n## Position\n"
+    )
+    assert starts_with_canonical_header(
+        "\n  \n### [DECISION] @x · 2026-04-28T00:00:00Z\n"
+    )
+    assert not starts_with_canonical_header("preamble\n### [PROPOSAL] @x · t\n")
+    assert not starts_with_canonical_header("")

@@ -160,7 +160,10 @@ def test_plan_endpoint_bootstraps_seed(tmp_path: Path) -> None:
     assert isinstance(items, list)
     assert len(items) == 1
     assert items[0]["deliberation_id"] == "0001"
-    assert items[0]["role"] == "proposer"
+    # Phase-5 fix: the seed deliberation routes under `bootstrapper`,
+    # not `proposer`, so the standing prompt's bootstrapper augmentation
+    # fires.
+    assert items[0]["role"] == "bootstrapper"
     # And the seed file got created on disk.
     seed = paths.deliberations / "0001-outcome-manifest.md"
     assert seed.is_file()

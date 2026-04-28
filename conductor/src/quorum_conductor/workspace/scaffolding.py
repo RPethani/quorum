@@ -292,12 +292,14 @@ def _copy_protocol_dir(target: Path) -> None:
     src_md = src / "PROTOCOL.md"
     if src_md.is_file() and not (target / "PROTOCOL.md").exists():
         shutil.copyfile(src_md, target / "PROTOCOL.md")
-    src_templates = src / "templates"
-    if src_templates.is_dir():
-        dst_templates = target / "templates"
-        dst_templates.mkdir(parents=True, exist_ok=True)
-        for entry in src_templates.iterdir():
+    for sub in ("templates", "manifest-templates"):
+        src_sub = src / sub
+        if not src_sub.is_dir():
+            continue
+        dst_sub = target / sub
+        dst_sub.mkdir(parents=True, exist_ok=True)
+        for entry in src_sub.iterdir():
             if entry.is_file():
-                dst = dst_templates / entry.name
+                dst = dst_sub / entry.name
                 if not dst.exists():
                     shutil.copyfile(entry, dst)

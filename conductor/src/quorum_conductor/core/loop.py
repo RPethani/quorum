@@ -43,6 +43,7 @@ from .routing import (
 from .routing_defaults import RoutingDefaults, load_routing_defaults
 
 ItemReason = Literal[
+    "open_needs_manifest_proposal",
     "open_needs_proposal",
     "missing_critique",
     "ready_for_synthesis",
@@ -230,8 +231,13 @@ def _next_action(
     if contributions.has("DECISION") or contributions.has("OVERRIDE"):
         return None
 
-    # Step 1: PROPOSAL.
+    # Step 1: PROPOSAL. The seed manifest deliberation is a special case —
+    # its frontmatter declares `bootstrapper:` and/or `ratifies:
+    # outcome-manifest.md`, and the standing prompt's bootstrapper
+    # augmentation only fires when we route the role as `bootstrapper`.
     if not contributions.has("PROPOSAL"):
+        if _is_bootstrapper_deliberation(meta):
+            return ("bootstrapper", "PROPOSAL", "open_needs_manifest_proposal")
         return ("proposer", "PROPOSAL", "open_needs_proposal")
 
     # Step 2: CRITIQUE per critic.
@@ -251,3 +257,13 @@ def _next_action(
 
     # Step 4: DECISION.
     return ("decider", "DECISION", "ready_for_decision")
+
+
+def _is_bootstrapper_deliberation(meta: DeliberationMeta) -> bool:
+    """A deliberation that ratifies the outcome manifest, or declares a
+    bootstrapper role explicitly, is the workspace's seed deliberation
+    and gets the bootstrapper standing-prompt augmentation."""
+    ratifies = str(meta.extras.get("ratifies", "") or "").strip().lower()
+    if ratifies == "outcome-manifest.md":
+        return True
+    return "bootstrapper" in meta.roles.extras

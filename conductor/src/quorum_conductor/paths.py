@@ -113,6 +113,10 @@ class WorkspacePaths:
         return self.protocol / "templates"
 
     @property
+    def protocol_manifest_templates(self) -> Path:
+        return self.protocol / "manifest-templates"
+
+    @property
     def context(self) -> Path:
         return self.root / "context"
 

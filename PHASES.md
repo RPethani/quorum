@@ -87,7 +87,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 5 — Vertical slice (first end-to-end deliberation) 🟡
+## Phase 5 — Vertical slice (first end-to-end deliberation) ✅
 
 **Goal.** Validate the protocol end-to-end with the minimum viable UI (design doc build-order step 5).
 

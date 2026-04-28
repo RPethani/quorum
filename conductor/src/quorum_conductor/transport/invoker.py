@@ -281,7 +281,12 @@ def _run_attempt(
         prompt = prompt + "\n\n## RETRY FEEDBACK\n\n" + feedback + "\n"
 
     try:
-        proc = _spawn(request.handle.cli_command, prompt, request.timeout_s)
+        proc = _spawn(
+            request.handle.cli_command,
+            prompt,
+            request.timeout_s,
+            cwd=str(paths.root),
+        )
     except subprocess.TimeoutExpired as exc:
         _move_stream_to_failed(stream_path, paths, "timeout")
         return _failure(
@@ -386,7 +391,13 @@ def _run_attempt(
 # ---------------------------------------------------------------------- #
 
 
-def _spawn(cli_command: str, prompt: str, timeout_s: float) -> subprocess.CompletedProcess[str]:
+def _spawn(
+    cli_command: str,
+    prompt: str,
+    timeout_s: float,
+    *,
+    cwd: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     cmd = shlex.split(cli_command)
     return subprocess.run(
         cmd,
@@ -395,6 +406,7 @@ def _spawn(cli_command: str, prompt: str, timeout_s: float) -> subprocess.Comple
         text=True,
         timeout=timeout_s,
         check=False,
+        cwd=cwd,
     )
 
 

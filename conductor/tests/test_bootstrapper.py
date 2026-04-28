@@ -48,8 +48,6 @@ def test_seed_is_idempotent(tmp_path: Path) -> None:
 def test_planner_picks_up_seed_with_bootstrapper_role(tmp_path: Path) -> None:
     paths = init_workspace(InitOptions(target=tmp_path / "quorum"))
     bootstrap_seed_deliberation(paths)
-    # No participants table populated → routing falls back / blocks; that's
-    # tested elsewhere. We're checking that the planner sees the file.
     paths.participants.write_text(
         "| Handle | Display Name | CLI Command | Model | Transport | Quota | "
         "Permission Capability | Account Label | Health |\n"
@@ -60,5 +58,25 @@ def test_planner_picks_up_seed_with_bootstrapper_role(tmp_path: Path) -> None:
     )
     result = plan(paths)
     assert len(result.items) == 1
-    assert result.items[0].deliberation.id == "0001"
-    assert result.items[0].move_type == "PROPOSAL"
+    item = result.items[0]
+    assert item.deliberation.id == "0001"
+    assert item.move_type == "PROPOSAL"
+    # Vertical-slice finding: the seed must route under the bootstrapper
+    # role so the standing prompt's bootstrapper augmentation fires.
+    assert item.role == "bootstrapper"
+    assert item.reason == "open_needs_manifest_proposal"
+
+
+def test_init_copies_manifest_templates(tmp_path: Path) -> None:
+    """Vertical-slice finding: the bootstrapper agent expects to read
+    the manifest templates from the workspace."""
+    paths = init_workspace(InitOptions(target=tmp_path / "quorum"))
+    target = paths.protocol_manifest_templates
+    assert target.is_dir()
+    files = sorted(p.name for p in target.glob("*.md"))
+    # Should have at least the five canonical archetypes.
+    assert "saas-product.md" in files
+    assert "research-direction.md" in files
+    assert "architecture-decision.md" in files
+    assert "coding-plan.md" in files
+    assert "strategic-decision.md" in files
