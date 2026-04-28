@@ -1,0 +1,100 @@
+/*
+ * Quorum design tokens — v0.1
+ * The source of truth for color, type, spacing, radius, and shadow values
+ * is DESIGN_SYSTEM.md at the repo root. This file translates that spec into
+ * CSS custom properties consumed by Tailwind v4 (via @theme in globals.css)
+ * and any direct CSS that needs the values.
+ *
+ * Light mode is the default :root. Dark mode is applied via the .dark
+ * class which `next-themes` toggles on <html>.
+ */
+
+:root {
+  /* Neutral scale — slightly cool */
+  --color-neutral-50: #fafafa;
+  --color-neutral-100: #f4f4f5;
+  --color-neutral-200: #e4e4e7;
+  --color-neutral-300: #d4d4d8;
+  --color-neutral-400: #a1a1aa;
+  --color-neutral-500: #71717a;
+  --color-neutral-600: #52525b;
+  --color-neutral-700: #3f3f46;
+  --color-neutral-800: #27272a;
+  --color-neutral-900: #18181b;
+  --color-neutral-950: #0a0a0a;
+
+  /* Accents — light tones */
+  --color-accent-primary: #3b82f6;
+  --color-accent-primary-weak: #dbeafe;
+  --color-accent-success: #10b981;
+  --color-accent-success-weak: #d1fae5;
+  --color-accent-warning: #f59e0b;
+  --color-accent-warning-weak: #fef3c7;
+  --color-accent-danger: #ef4444;
+  --color-accent-danger-weak: #fee2e2;
+  --color-accent-muted: #8b5cf6;
+  --color-accent-muted-weak: #ede9fe;
+
+  /* Semantic surfaces & text — light mode */
+  --color-bg-canvas: var(--color-neutral-50);
+  --color-bg-recessed: var(--color-neutral-100);
+  --color-bg-elevated: #ffffff;
+  --color-fg-primary: var(--color-neutral-950);
+  --color-fg-secondary: var(--color-neutral-700);
+  --color-fg-tertiary: var(--color-neutral-500);
+  --color-border-default: var(--color-neutral-200);
+  --color-border-emphasis: var(--color-neutral-300);
+
+  /* Radii */
+  --radius-none: 0px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows — subtle by design */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+  --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.12), 0 4px 8px -4px rgb(0 0 0 / 0.04);
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 100ms;
+  --duration-base: 150ms;
+  --duration-slow: 200ms;
+  --duration-modal: 250ms;
+
+  /* Type families */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+.dark {
+  /* Accents — dark tones (one step lighter) */
+  --color-accent-primary: #60a5fa;
+  --color-accent-primary-weak: #172554;
+  --color-accent-success: #34d399;
+  --color-accent-success-weak: #022c22;
+  --color-accent-warning: #fbbf24;
+  --color-accent-warning-weak: #451a03;
+  --color-accent-danger: #f87171;
+  --color-accent-danger-weak: #450a0a;
+  --color-accent-muted: #a78bfa;
+  --color-accent-muted-weak: #2e1065;
+
+  /* Semantic surfaces & text — dark mode */
+  --color-bg-canvas: var(--color-neutral-950);
+  --color-bg-recessed: var(--color-neutral-900);
+  --color-bg-elevated: var(--color-neutral-800);
+  --color-fg-primary: var(--color-neutral-50);
+  --color-fg-secondary: var(--color-neutral-300);
+  --color-fg-tertiary: var(--color-neutral-500);
+  --color-border-default: var(--color-neutral-800);
+  --color-border-emphasis: var(--color-neutral-700);
+
+  /* Shadows — barely visible in dark mode; rely on borders for separation */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.6);
+}

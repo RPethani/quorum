@@ -1,0 +1,132 @@
+@import "tailwindcss";
+@import "../components/design-system/tokens.css";
+
+/*
+ * Tailwind v4 theme — wires our CSS custom properties into Tailwind's
+ * utility namespace so utilities like `bg-canvas`, `text-fg-primary`,
+ * `border-default`, `bg-accent-primary-weak` etc. resolve to our tokens.
+ *
+ * Add new tokens here when DESIGN_SYSTEM.md adds them; do not introduce
+ * one-off colors at use sites.
+ */
+@theme {
+  /* Neutrals */
+  --color-neutral-50: var(--color-neutral-50);
+  --color-neutral-100: var(--color-neutral-100);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-300: var(--color-neutral-300);
+  --color-neutral-400: var(--color-neutral-400);
+  --color-neutral-500: var(--color-neutral-500);
+  --color-neutral-600: var(--color-neutral-600);
+  --color-neutral-700: var(--color-neutral-700);
+  --color-neutral-800: var(--color-neutral-800);
+  --color-neutral-900: var(--color-neutral-900);
+  --color-neutral-950: var(--color-neutral-950);
+
+  /* Semantic surfaces and text */
+  --color-canvas: var(--color-bg-canvas);
+  --color-recessed: var(--color-bg-recessed);
+  --color-elevated: var(--color-bg-elevated);
+  --color-fg-primary: var(--color-fg-primary);
+  --color-fg-secondary: var(--color-fg-secondary);
+  --color-fg-tertiary: var(--color-fg-tertiary);
+  --color-border-default: var(--color-border-default);
+  --color-border-emphasis: var(--color-border-emphasis);
+
+  /* Accents */
+  --color-accent-primary: var(--color-accent-primary);
+  --color-accent-primary-weak: var(--color-accent-primary-weak);
+  --color-accent-success: var(--color-accent-success);
+  --color-accent-success-weak: var(--color-accent-success-weak);
+  --color-accent-warning: var(--color-accent-warning);
+  --color-accent-warning-weak: var(--color-accent-warning-weak);
+  --color-accent-danger: var(--color-accent-danger);
+  --color-accent-danger-weak: var(--color-accent-danger-weak);
+  --color-accent-muted: var(--color-accent-muted);
+  --color-accent-muted-weak: var(--color-accent-muted-weak);
+
+  /* Radii */
+  --radius-none: var(--radius-none);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  /* Type ramp */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-md: 1rem;
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.375rem;
+  --text-xl--line-height: 2rem;
+  --text-2xl: 1.75rem;
+  --text-2xl--line-height: 2.25rem;
+  --text-3xl: 2.25rem;
+  --text-3xl--line-height: 2.75rem;
+}
+
+/*
+ * Dark-mode strategy: trigger via the `.dark` class on <html>, set by
+ * next-themes. The `@custom-variant` lets utilities like `dark:bg-canvas`
+ * apply when the class is present.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color-scheme: light dark;
+  }
+
+  body {
+    background-color: var(--color-bg-canvas);
+    color: var(--color-fg-primary);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Headings — subtle letter-spacing tightening per DESIGN_SYSTEM.md §4 */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.01em;
+  }
+
+  /* All-caps labels — open up letter-spacing for legibility */
+  .label-caps {
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  /* Mono everywhere mono is intended */
+  code, kbd, samp, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Reduced motion — respected by anything that uses our motion tokens */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Composing-state pulse used by MoveCard (Phase 2 skeleton, Phase 7 full) */
+@keyframes quorum-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.composing-pulse {
+  animation: quorum-pulse 1.5s var(--ease-out-expo) infinite;
+}

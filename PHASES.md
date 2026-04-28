@@ -24,7 +24,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 1 — Protocol artifacts (no code) 🟡
+## Phase 1 — Protocol artifacts (no code) ✅
 
 **Goal.** Produce all static protocol files (Markdown / YAML).
 
@@ -39,7 +39,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 2 — Design system specification ⬜
+## Phase 2 — Design system specification 🟡
 
 **Goal.** Codify the design system and ship the foundational tokens. No application UI yet.
 
