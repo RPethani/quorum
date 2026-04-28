@@ -39,7 +39,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 2 — Design system specification 🟡
+## Phase 2 — Design system specification ✅
 
 **Goal.** Codify the design system and ship the foundational tokens. No application UI yet.
 
@@ -54,7 +54,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 3 — Manual protocol exercise (notes only) ⬜
+## Phase 3 — Manual protocol exercise (notes only) 🟡
 
 **Goal.** Prepare the user to manually exercise the protocol with three CLI agents on a small problem (design doc build-order step 3).
 
