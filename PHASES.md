@@ -54,7 +54,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 3 — Manual protocol exercise (notes only) 🟡
+## Phase 3 — Manual protocol exercise (notes only) ✅
 
 **Goal.** Prepare the user to manually exercise the protocol with three CLI agents on a small problem (design doc build-order step 3).
 
@@ -65,13 +65,13 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 4 — Conductor core (Python) ⬜
+## Phase 4 — Conductor core (Python) 🟡
 
 **Goal.** Conductor as documented in §10. CLI commands, no UI yet, no permission broker, no fancy context surface.
 
 **Sub-phases.**
-- 4a · scaffolding — `pyproject.toml`, `uv.lock`, package layout, `quorum` entry point, `quorum --help`.
-- 4b · workspace lifecycle — `init`, `status`, `doctor`, `archive`, `unarchive`, file scaffolding.
+- 4a · scaffolding — `pyproject.toml`, package layout, `quorum` entry point, `quorum --help`. ✅
+- 4b · workspace lifecycle — `init`, `status`, `doctor`, `archive`, `unarchive`, file scaffolding. ✅
 - 4c · routing engine — read `participants.md` and `routing-defaults.yaml`, score handles, log decisions.
 - 4d · invocation — spawn CLI process, render prompt, capture stdout, append validated move, lifecycle markers.
 - 4e · validator — move structure validation per §5; reject vacuous Summary lines; one-retry on failure.
