@@ -6,7 +6,9 @@ has no notion of time or concurrency.
 """
 
 from .config import WorkspaceConfig, load_workspace_config
+from .contributions import ContributionsView, parse_contributions
 from .deliberation import DeliberationMeta, DeliberationRoles, load_deliberation
+from .loop import BlockedItem, PendingItem, PlanResult, plan
 from .participants import Participant, parse_participants
 from .routing import (
     Alternative,
@@ -25,11 +27,15 @@ from .validator import (
 
 __all__ = [
     "Alternative",
+    "BlockedItem",
+    "ContributionsView",
     "DeliberationMeta",
     "DeliberationRoles",
     "FullMoveValidation",
     "NoHandleAvailableError",
     "Participant",
+    "PendingItem",
+    "PlanResult",
     "RoutingDecision",
     "RoutingDefaults",
     "RoutingLayer",
@@ -37,7 +43,9 @@ __all__ = [
     "load_deliberation",
     "load_routing_defaults",
     "load_workspace_config",
+    "parse_contributions",
     "parse_participants",
+    "plan",
     "render_validation_feedback",
     "required_sections_for",
     "route",

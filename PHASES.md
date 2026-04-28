@@ -75,9 +75,9 @@ The plan refines the build order in §14 of the design doc and the phase list in
 - 4c · routing engine — read `participants.md` and `routing-defaults.yaml`, score handles, log decisions. ✅
 - 4d · invocation — spawn CLI process, render prompt, capture stdout, append validated move, lifecycle markers. ✅
 - 4e · validator — move structure validation per §5; reject vacuous Summary lines; one-retry on failure. ✅
-- 4f · loop — `start`/`pause`/`step`/`run`/`resume`, parallel invocations with per-deliberation locks.
+- 4f · loop — `start`/`pause`/`step`/`run`/`resume`, parallel invocations with per-deliberation locks. ✅
 - 4g · events — `events.jsonl` emission with the §10.5 schema. ✅
-- 4h · bootstrapper — handles deliberation #0001 (manifest creation).
+- 4h · bootstrapper — handles deliberation #0001 (manifest creation). ✅
 - 4i · cost ceiling — per-invocation cost tracking; per-workspace ceiling enforcement (default $50, ON).
 - 4j · tests — pytest suite covering each module.
 

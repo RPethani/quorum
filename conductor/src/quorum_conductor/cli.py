@@ -2,41 +2,50 @@
 
 Argparse-based. No external CLI dep — keeps the conductor's footprint
 small and the `--help` output stable. Subcommands route to thin wrappers
-in `workspace/` and `transport/`.
+in `workspace/`, `transport/`, `core/`.
 """
 
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
+import time
 from pathlib import Path
 
 from . import __version__
 from .core import (
     NoHandleAvailableError,
-    load_deliberation,
-    load_routing_defaults,
-    load_workspace_config,
-    parse_participants,
-    route,
+    PendingItem,
+    PlanResult,
+    plan,
 )
 from .events import EventLogger, RoutingDecisionEvent
 from .paths import WorkspaceNotFoundError, WorkspacePaths, require_workspace
 from .transport.doctor import doctor_check, render_doctor_report
-from .transport.invoker import InvocationRequest, invoke
+from .transport.runner import run_items_sync
 from .workspace import (
     InitOptions,
     WorkspaceMode,
+    WorkspaceState,
     archive_workspace,
+    bootstrap_seed_deliberation,
     init_workspace,
     load_state,
+    needs_bootstrap,
+    save_state,
     status_summary,
     unarchive_workspace,
 )
 from .workspace.archive import ArchiveError
+from .workspace.process import ProcessError, conductor_running, daemonize_run, stop_conductor
 from .workspace.scaffolding import ScaffoldingError
 from .workspace.state import StateFileError
 from .workspace.status import render_status
+
+# Default loop tick when running foreground.
+_LOOP_IDLE_SLEEP_S: float = 1.0
+_LOOP_MAX_TICKS_DEFAULT: int = 0  # 0 == unlimited
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         StateFileError,
         WorkspaceNotFoundError,
         NoHandleAvailableError,
+        ProcessError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -71,24 +81,12 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="quorum",
         description="Quorum — local hub for multi-agent collaborative reasoning.",
     )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"quorum {__version__}",
-    )
+    parser.add_argument("--version", action="version", version=f"quorum {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     # init
-    p_init = sub.add_parser(
-        "init",
-        help="Scaffold a new workspace in ./quorum/ (or the given path).",
-    )
-    p_init.add_argument(
-        "path",
-        nargs="?",
-        default="quorum",
-        help="Workspace root to create (default: ./quorum).",
-    )
+    p_init = sub.add_parser("init", help="Scaffold a new workspace in ./quorum/.")
+    p_init.add_argument("path", nargs="?", default="quorum", help="Workspace root.")
     p_init.add_argument(
         "--autonomous",
         action="store_true",
@@ -98,77 +96,83 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # status
     p_status = sub.add_parser("status", help="Print workspace status.")
-    p_status.add_argument(
-        "--path",
-        default=None,
-        help="Workspace root (default: search upward from cwd).",
-    )
+    _add_path(p_status)
     p_status.set_defaults(handler=_cmd_status)
 
     # doctor
-    p_doctor = sub.add_parser(
-        "doctor",
-        help="Health-check registered handles (CLI tools on PATH, etc.).",
-    )
-    p_doctor.add_argument(
-        "--path",
-        default=None,
-        help="Workspace root (default: search upward from cwd).",
-    )
+    p_doctor = sub.add_parser("doctor", help="Health-check registered handles.")
+    _add_path(p_doctor)
     p_doctor.set_defaults(handler=_cmd_doctor)
 
-    # archive
-    p_archive = sub.add_parser(
-        "archive",
-        help="Archive the current workspace (state -> ARCHIVED, runtime/ deleted).",
-    )
-    p_archive.add_argument(
-        "--path",
-        default=None,
-        help="Workspace root (default: search upward from cwd).",
-    )
-    p_archive.add_argument(
-        "--reason",
-        default="completed",
-        help="Archive reason (free text). Default: 'completed'.",
-    )
+    # archive / unarchive
+    p_archive = sub.add_parser("archive", help="Archive the current workspace.")
+    _add_path(p_archive)
+    p_archive.add_argument("--reason", default="completed", help="Archive reason.")
     p_archive.set_defaults(handler=_cmd_archive)
 
-    # unarchive
-    p_unarchive = sub.add_parser(
-        "unarchive",
-        help="Reverse an archive (state -> INITIALIZED, runtime/ recreated).",
-    )
-    p_unarchive.add_argument(
-        "--path",
-        default=None,
-        help="Workspace root (default: search upward from cwd).",
-    )
+    p_unarchive = sub.add_parser("unarchive", help="Reverse an archive.")
+    _add_path(p_unarchive)
     p_unarchive.set_defaults(handler=_cmd_unarchive)
 
-    # step (single invocation; the parallel loop wraps this in Phase 4f)
+    # plan (read-only inspection of what the loop would do next)
+    p_plan = sub.add_parser("plan", help="Show what the loop would invoke next.")
+    _add_path(p_plan)
+    p_plan.set_defaults(handler=_cmd_plan)
+
+    # step — runs the next pending item once, foreground.
     p_step = sub.add_parser(
         "step",
-        help=(
-            "Run a single agent invocation against an explicit deliberation/role. "
-            "The full scanning loop arrives in Phase 4f."
-        ),
+        help="Run the next pending invocation (single-step debug mode).",
     )
-    p_step.add_argument("role", help="Role to invoke (proposer, critic, synthesizer, …).")
-    p_step.add_argument("deliberation_id", help="Deliberation id (e.g. 0001).")
-    p_step.add_argument(
-        "--move-type",
-        required=True,
-        help="Move type to produce (PROPOSAL, CRITIQUE, SYNTHESIS, …).",
+    _add_path(p_step)
+    p_step.set_defaults(handler=_cmd_step)
+
+    # run — foreground loop.
+    p_run = sub.add_parser("run", help="Foreground loop: run items until idle or blocked.")
+    _add_path(p_run)
+    p_run.add_argument(
+        "--max-ticks",
+        type=int,
+        default=_LOOP_MAX_TICKS_DEFAULT,
+        help="Stop after N idle ticks (0 = run until SIGTERM/Ctrl-C).",
     )
-    p_step.add_argument(
+    p_run.add_argument(
+        "--detached",
+        action="store_true",
+        help=argparse.SUPPRESS,  # set by `quorum start`'s daemonize child.
+    )
+    p_run.set_defaults(handler=_cmd_run)
+
+    # start — daemonized run.
+    p_start = sub.add_parser(
+        "start",
+        help="Start the conductor daemonised (writes runtime/conductor.pid).",
+    )
+    _add_path(p_start)
+    p_start.set_defaults(handler=_cmd_start)
+
+    # resume — alias for start (semantic for PAUSED workspaces).
+    p_resume = sub.add_parser(
+        "resume",
+        help="Alias for `start`; intended for PAUSED workspaces.",
+    )
+    _add_path(p_resume)
+    p_resume.set_defaults(handler=_cmd_start)
+
+    # pause — stop the daemonised conductor.
+    p_pause = sub.add_parser("pause", help="Stop the daemonised conductor.")
+    _add_path(p_pause)
+    p_pause.set_defaults(handler=_cmd_pause)
+
+    return parser
+
+
+def _add_path(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
         "--path",
         default=None,
         help="Workspace root (default: search upward from cwd).",
     )
-    p_step.set_defaults(handler=_cmd_step)
-
-    return parser
 
 
 # ---------------------------------------------------------------------- #
@@ -187,7 +191,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(f"  1. edit {_rel(paths.problem_statement)} with your problem statement")
     print(f"  2. add at least one cli handle to {_rel(paths.participants)}")
     print("  3. run `quorum doctor` to verify your handles")
-    print("  4. run `quorum status` to confirm INITIALIZED state")
+    print("  4. run `quorum start` to begin the conductor")
     return 0
 
 
@@ -220,43 +224,35 @@ def _cmd_unarchive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_plan(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    _ensure_seed(paths)
+    result = plan(paths)
+    _print_plan(result)
+    return 0
+
+
 def _cmd_step(args: argparse.Namespace) -> int:
     paths = _resolve_workspace(args)
+    _ensure_seed(paths)
     state = load_state(paths.state_yaml)
-
-    # Locate the deliberation file by id. Filenames follow the
-    # `<id>-<slug>.md` convention but agents may rename freely; scan for
-    # frontmatter id rather than relying on the name.
-    deliberation_path = _find_deliberation(paths, args.deliberation_id)
-    if deliberation_path is None:
-        print(
-            f"error: no deliberation with id {args.deliberation_id!r} found in "
-            f"{paths.deliberations}",
-            file=sys.stderr,
-        )
-        return 1
-
-    meta = load_deliberation(deliberation_path)
-    participants = parse_participants(paths.participants)
-    config = load_workspace_config(paths.config_yaml)
-    defaults = load_routing_defaults(paths.routing_defaults)
-
-    decision = route(
-        role=args.role,
-        deliberation=meta,
-        participants=participants,
-        config=config,
-        defaults=defaults,
-    )
+    result = plan(paths)
+    runnable = result.runnable()
+    if not runnable:
+        print("nothing to do.")
+        _print_plan(result, header=False)
+        return 0
+    item = runnable[0]
+    print(f"step → {item.routing.handle} as {item.role} ({item.move_type}) on #{item.deliberation.id}")
     events = EventLogger(paths.events_jsonl)
     events.emit(
         RoutingDecisionEvent(
-            handle=decision.handle,
-            role=decision.role,
-            deliberation_id=decision.deliberation_id,
-            layer=decision.layer.value,
-            fitness=decision.fitness,
-            cost=decision.cost,
+            handle=item.routing.handle,
+            role=item.routing.role,
+            deliberation_id=item.routing.deliberation_id,
+            layer=item.routing.layer.value,
+            fitness=item.routing.fitness,
+            cost=item.routing.cost,
             alternatives=[
                 {
                     "handle": a.handle,
@@ -264,55 +260,122 @@ def _cmd_step(args: argparse.Namespace) -> int:
                     "cost": a.cost,
                     "rejected_because": a.rejected_because,
                 }
-                for a in decision.alternatives
+                for a in item.routing.alternatives
             ],
-            note=decision.note,
+            note=item.routing.note,
         )
     )
-    print(
-        f"routed {args.role!r} → {decision.handle} "
-        f"(layer={decision.layer.value}, fitness={decision.fitness}, cost={decision.cost})"
+    results = run_items_sync(
+        [item], paths=paths, events=events, mode=state.mode.value, max_concurrent=1
     )
-    if decision.note:
-        print(f"  note: {decision.note}")
-
-    by_handle = {p.handle: p for p in participants}
-    handle = by_handle.get(decision.handle)
-    if handle is None:
-        print(
-            f"error: routing chose {decision.handle} but it is missing from participants.md",
-            file=sys.stderr,
-        )
-        return 1
-    if handle.transport != "cli":
-        print(
-            f"error: handle {handle.handle} has transport={handle.transport!r}; "
-            "only `cli` transport is supported in Phase 4d.",
-            file=sys.stderr,
-        )
-        return 1
-
-    request = InvocationRequest(
-        handle=handle,
-        role=args.role,
-        move_type=args.move_type,
-        deliberation=meta,
-        deliberation_path=deliberation_path,
-        mode=state.mode.value,
-    )
-    result = invoke(request, paths, events=events)
-
-    print(f"status   : {result.status}")
-    print(f"duration : {result.duration_s:.1f}s")
-    if result.appended:
-        print(f"appended : yes — {result.move_type} by {result.handle}")
-        if result.inboxes_notified:
-            print(f"notified : {', '.join(result.inboxes_notified)}")
+    res = results[0]
+    print(f"status   : {res.status}")
+    print(f"duration : {res.duration_s:.1f}s  attempts: {res.attempts}")
+    if res.appended:
+        print(f"appended : yes — {res.move_type} by {res.handle}")
+        if res.inboxes_notified:
+            print(f"notified : {', '.join(res.inboxes_notified)}")
     else:
         print("appended : no")
-        if result.error:
-            print(f"error    : {result.error}")
-    return 0 if result.status == "ok" else 2
+        if res.error:
+            print(f"error    : {res.error}")
+    return 0 if res.status == "ok" else 2
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    _ensure_seed(paths)
+    _transition_to(paths, WorkspaceState.ACTIVE)
+    if not getattr(args, "detached", False):
+        print(f"conductor running on {paths.root} (Ctrl-C to stop)")
+
+    stop = _install_stop_handlers()
+    state = load_state(paths.state_yaml)
+    events = EventLogger(paths.events_jsonl)
+    idle_ticks = 0
+    # Skip-list of (deliberation_id, role, move_type) tuples that already
+    # failed during this run so a single bad agent does not loop forever.
+    # The loop's no-progress stop condition (design-doc §10) is the
+    # higher-quality answer; this is the v1 minimum.
+    failed_keys: set[tuple[str, str, str]] = set()
+
+    while not stop["flag"]:
+        result = plan(paths)
+        runnable = tuple(
+            i
+            for i in result.runnable()
+            if (i.deliberation.id, i.role, i.move_type) not in failed_keys
+        )
+        if not runnable:
+            if result.manual() or result.blocked or failed_keys:
+                # Either humans owe us a move, routing is blocked, or
+                # we've already exhausted retries on every runnable role.
+                break
+            idle_ticks += 1
+            if args.max_ticks and idle_ticks >= args.max_ticks:
+                break
+            time.sleep(_LOOP_IDLE_SLEEP_S)
+            continue
+        idle_ticks = 0
+        for item in runnable:
+            events.emit(
+                RoutingDecisionEvent(
+                    handle=item.routing.handle,
+                    role=item.routing.role,
+                    deliberation_id=item.routing.deliberation_id,
+                    layer=item.routing.layer.value,
+                    fitness=item.routing.fitness,
+                    cost=item.routing.cost,
+                    alternatives=[
+                        {
+                            "handle": a.handle,
+                            "fitness": a.fitness,
+                            "cost": a.cost,
+                            "rejected_because": a.rejected_because,
+                        }
+                        for a in item.routing.alternatives
+                    ],
+                    note=item.routing.note,
+                )
+            )
+        invocation_results = run_items_sync(
+            runnable, paths=paths, events=events, mode=state.mode.value
+        )
+        for item, ir in zip(runnable, invocation_results, strict=True):
+            if ir.status != "ok":
+                failed_keys.add((item.deliberation.id, item.role, item.move_type))
+
+    _transition_to(paths, WorkspaceState.PAUSED)
+    if getattr(args, "detached", False):
+        # Clean our own pidfile so `quorum status` doesn't show a stale
+        # one after a clean exit. `quorum pause` also handles this; this
+        # branch covers the loop-exited-on-its-own case.
+        import contextlib
+
+        with contextlib.suppress(FileNotFoundError):
+            paths.conductor_pid.unlink()
+    else:
+        print("conductor paused.")
+    return 0
+
+
+def _cmd_start(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    _ensure_seed(paths)
+    pid = daemonize_run(paths)
+    print(f"conductor started (pid {pid}). logs: {paths.runtime / 'conductor.log'}")
+    return 0
+
+
+def _cmd_pause(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    pid = stop_conductor(paths)
+    if pid is None:
+        print("no running conductor.")
+        return 0
+    print(f"conductor (pid {pid}) stopped.")
+    _transition_to(paths, WorkspaceState.PAUSED)
+    return 0
 
 
 # ---------------------------------------------------------------------- #
@@ -326,7 +389,7 @@ def _resolve_workspace(args: argparse.Namespace) -> WorkspacePaths:
         root = Path(explicit).expanduser().resolve()
         if not (root / "state.yaml").is_file():
             raise WorkspaceNotFoundError(
-                f"No workspace at {root} (no state.yaml). Use `quorum init {explicit}` to create one."
+                f"No workspace at {root} (no state.yaml). Use `quorum init {explicit}`."
             )
         return WorkspacePaths(root=root)
     return require_workspace()
@@ -339,14 +402,61 @@ def _rel(path: Path) -> str:
         return str(path)
 
 
-def _find_deliberation(paths: WorkspacePaths, deliberation_id: str) -> Path | None:
-    if not paths.deliberations.is_dir():
-        return None
-    for candidate in paths.deliberations.glob("*.md"):
-        try:
-            meta = load_deliberation(candidate)
-        except Exception:
-            continue
-        if meta.id == deliberation_id:
-            return candidate
-    return None
+def _ensure_seed(paths: WorkspacePaths) -> None:
+    """If the workspace has no deliberations yet, open #0001 (the manifest)."""
+    if needs_bootstrap(paths):
+        path = bootstrap_seed_deliberation(paths)
+        print(f"opened seed deliberation at {_rel(path)}")
+
+
+def _transition_to(paths: WorkspacePaths, state: WorkspaceState) -> None:
+    model = load_state(paths.state_yaml)
+    if model.state == state:
+        return
+    if model.state == WorkspaceState.ARCHIVED:
+        return  # archived workspaces don't run.
+    model.state = state
+    from datetime import UTC, datetime
+
+    model.state_changed_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    save_state(paths.state_yaml, model)
+
+
+def _install_stop_handlers() -> dict[str, bool]:
+    flag: dict[str, bool] = {"flag": False}
+
+    def _handle(_signo: int, _frame: object) -> None:
+        flag["flag"] = True
+
+    import contextlib
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        # Setting handlers fails inside non-main threads or on platforms
+        # without signal support; both are acceptable here.
+        with contextlib.suppress(ValueError, OSError):
+            signal.signal(sig, _handle)
+    return flag
+
+
+def _print_plan(result: PlanResult, *, header: bool = True) -> None:
+    if header:
+        print(f"plan: {len(result.items)} item(s) ready, {len(result.blocked)} blocked")
+    if not result.items and not result.blocked:
+        print("  (nothing pending — every deliberation is done or blocked on humans)")
+        return
+    for item in result.items:
+        _print_item(item)
+    for blocked in result.blocked:
+        print(
+            f"  [blocked] #{blocked.deliberation.id} {blocked.role}/{blocked.move_type} "
+            f"— {blocked.reason}"
+        )
+
+
+def _print_item(item: PendingItem) -> None:
+    suffix = "  (manual)" if item.is_manual else ""
+    print(
+        f"  [{item.routing.layer.value:14}] #{item.deliberation.id} "
+        f"{item.role}/{item.move_type:10} → {item.routing.handle}{suffix}"
+    )
+    _ = conductor_running  # silence ruff F401 if status helpers diverge later.
