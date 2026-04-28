@@ -137,20 +137,27 @@ template_used: null
 # ----------------------------------------------------------------------- #
 
 
-def _bundled_routing_defaults() -> Path | None:
-    """Find `routing-defaults.yaml` shipped with this repo.
+def _find_repo_root() -> Path | None:
+    """Walk upward from this file to the repo root.
 
-    The conductor lives at `conductor/src/quorum_conductor/`; the
-    canonical defaults live at `<repo>/routing-defaults/routing-defaults.yaml`.
-    During development we look up the tree; once packaged we'd read from
-    `importlib.resources`. For now, support both — tree first, then any
-    bundled `_resources/` inside the package.
+    During development the conductor lives at
+    `<repo>/conductor/src/quorum_conductor/`; the protocol, prompts, and
+    routing-defaults sit at `<repo>/protocol/`, `<repo>/prompts/`,
+    `<repo>/routing-defaults/`. We locate the repo by looking for
+    `routing-defaults/routing-defaults.yaml`, which is unique to this
+    project's layout.
     """
     here = Path(__file__).resolve()
     for parent in here.parents:
-        candidate = parent / "routing-defaults" / "routing-defaults.yaml"
-        if candidate.is_file():
-            return candidate
+        if (parent / "routing-defaults" / "routing-defaults.yaml").is_file():
+            return parent
+    return None
+
+
+def _bundled_routing_defaults() -> Path | None:
+    repo = _find_repo_root()
+    if repo is not None:
+        return repo / "routing-defaults" / "routing-defaults.yaml"
     # Packaged fallback (filled in if/when we ship via PyPI).
     try:
         resource = files("quorum_conductor").joinpath("_resources/routing-defaults.yaml")
@@ -158,6 +165,20 @@ def _bundled_routing_defaults() -> Path | None:
             return Path(str(resource))
     except (FileNotFoundError, ModuleNotFoundError):
         pass
+    return None
+
+
+def _bundled_standing_prompt() -> Path | None:
+    repo = _find_repo_root()
+    if repo is not None:
+        return repo / "prompts" / "agent-standing-prompt.md"
+    return None
+
+
+def _bundled_protocol_dir() -> Path | None:
+    repo = _find_repo_root()
+    if repo is not None:
+        return repo / "protocol"
     return None
 
 
@@ -195,6 +216,10 @@ def scaffold_workspace(paths: WorkspacePaths) -> None:
     _write_if_missing(paths.participants, PARTICIPANTS_TEMPLATE)
     _copy_routing_defaults(paths.routing_defaults)
 
+    # Prompts and protocol — agents need these in-workspace per design-doc §7.
+    _copy_standing_prompt(paths.agent_standing_prompt)
+    _copy_protocol_dir(paths.protocol)
+
     # Inbox seed for the human (other handles' inboxes are created lazily).
     _write_if_missing(paths.inbox / "@human-rohan.md", "")
 
@@ -218,7 +243,7 @@ def _copy_routing_defaults(target: Path) -> None:
     if src is None:
         # Best-effort fallback: write a stub so the workspace is at least
         # parseable. The user is told to run `quorum refresh-defaults`
-        # once we ship that command (Phase 4c).
+        # once we ship that command.
         target.write_text(
             "schema_version: 0.1\n"
             "# Routing defaults could not be located at init time.\n"
@@ -233,3 +258,46 @@ def _copy_routing_defaults(target: Path) -> None:
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, target)
+
+
+def _copy_standing_prompt(target: Path) -> None:
+    if target.exists():
+        return
+    src = _bundled_standing_prompt()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if src is None:
+        target.write_text(
+            "# Quorum Standing Agent Prompt\n\n"
+            "Standing prompt could not be located at init time. Copy it from\n"
+            "the Quorum repo's prompts/agent-standing-prompt.md before running\n"
+            "`quorum start`.\n",
+            encoding="utf-8",
+        )
+        return
+    shutil.copyfile(src, target)
+
+
+def _copy_protocol_dir(target: Path) -> None:
+    """Copy `protocol/PROTOCOL.md` and `protocol/templates/` into the workspace.
+
+    Idempotent: only files that don't already exist at the target are
+    written. The `manifest-templates/` directory is not copied — those
+    templates are read from the bundled location at init time when a
+    user picks one, not stored per-workspace.
+    """
+    src = _bundled_protocol_dir()
+    if src is None:
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    src_md = src / "PROTOCOL.md"
+    if src_md.is_file() and not (target / "PROTOCOL.md").exists():
+        shutil.copyfile(src_md, target / "PROTOCOL.md")
+    src_templates = src / "templates"
+    if src_templates.is_dir():
+        dst_templates = target / "templates"
+        dst_templates.mkdir(parents=True, exist_ok=True)
+        for entry in src_templates.iterdir():
+            if entry.is_file():
+                dst = dst_templates / entry.name
+                if not dst.exists():
+                    shutil.copyfile(entry, dst)

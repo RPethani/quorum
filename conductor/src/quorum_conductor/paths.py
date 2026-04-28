@@ -89,6 +89,30 @@ class WorkspacePaths:
         return self.registers / "glossary.md"
 
     @property
+    def prompts(self) -> Path:
+        return self.root / "prompts"
+
+    @property
+    def agent_standing_prompt(self) -> Path:
+        return self.prompts / "agent-standing-prompt.md"
+
+    @property
+    def prompts_overrides(self) -> Path:
+        return self.prompts / "overrides"
+
+    @property
+    def protocol(self) -> Path:
+        return self.root / "protocol"
+
+    @property
+    def protocol_md(self) -> Path:
+        return self.protocol / "PROTOCOL.md"
+
+    @property
+    def protocol_templates(self) -> Path:
+        return self.protocol / "templates"
+
+    @property
     def context(self) -> Path:
         return self.root / "context"
 
@@ -151,6 +175,10 @@ class WorkspacePaths:
             self.tasks,
             self.inbox,
             self.registers,
+            self.protocol,
+            self.protocol_templates,
+            self.prompts,
+            self.prompts_overrides,
             self.context,
             self.context_repos,
             self.context_docs,

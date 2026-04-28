@@ -73,7 +73,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 - 4a · scaffolding — `pyproject.toml`, package layout, `quorum` entry point, `quorum --help`. ✅
 - 4b · workspace lifecycle — `init`, `status`, `doctor`, `archive`, `unarchive`, file scaffolding. ✅
 - 4c · routing engine — read `participants.md` and `routing-defaults.yaml`, score handles, log decisions. ✅
-- 4d · invocation — spawn CLI process, render prompt, capture stdout, append validated move, lifecycle markers.
+- 4d · invocation — spawn CLI process, render prompt, capture stdout, append validated move, lifecycle markers. ✅
 - 4e · validator — move structure validation per §5; reject vacuous Summary lines; one-retry on failure.
 - 4f · loop — `start`/`pause`/`step`/`run`/`resume`, parallel invocations with per-deliberation locks.
 - 4g · events — `events.jsonl` emission with the §10.5 schema.
