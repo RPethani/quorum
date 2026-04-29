@@ -67,9 +67,14 @@ export function ContextDialog({
         <TabsContent value="repos">
           <ItemList
             items={manifest?.repos ?? []}
-            fields={["name", "path", "relevance"]}
+            fields={["path", "relevance"]}
             kind="repos"
             onRemoved={refresh}
+            badgeFor={(it) =>
+              it.digested
+                ? { label: "digested", tone: "success" }
+                : { label: "needs digest", tone: "warning" }
+            }
           />
           <AddRepoForm onAdded={refresh} />
         </TabsContent>
@@ -77,9 +82,17 @@ export function ContextDialog({
         <TabsContent value="docs">
           <ItemList
             items={manifest?.docs ?? []}
-            fields={["name", "source_path", "tokens_estimated", "needs_digest"]}
+            fields={["source_path", "tokens_estimated"]}
             kind="docs"
             onRemoved={refresh}
+            badgeFor={(it) => {
+              if (it.needs_digest) {
+                return it.digested
+                  ? { label: "digested", tone: "success" }
+                  : { label: "needs digest", tone: "warning" };
+              }
+              return { label: "ready (raw)", tone: "neutral" };
+            }}
           />
           <AddDocForm onAdded={refresh} />
         </TabsContent>
@@ -172,16 +185,27 @@ function ProblemStatement() {
 // Generic items list — table-ish summary
 // ---------------------------------------------------------------------- //
 
+type Tone = "success" | "warning" | "danger" | "neutral";
+
+const TONE_CLASSES: Record<Tone, string> = {
+  success: "bg-accent-success-weak text-accent-success border border-accent-success/40",
+  warning: "bg-accent-warning-weak text-accent-warning border border-accent-warning/40",
+  danger: "bg-accent-danger-weak text-accent-danger border border-accent-danger/40",
+  neutral: "bg-recessed text-fg-tertiary border border-border-default",
+};
+
 function ItemList({
   items,
   fields,
   kind,
   onRemoved,
+  badgeFor,
 }: {
   items: Array<Record<string, unknown>>;
   fields: string[];
   kind: "repos" | "docs" | "notes";
   onRemoved: () => void;
+  badgeFor?: (it: Record<string, unknown>) => { label: string; tone: Tone } | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -204,7 +228,22 @@ function ItemList({
               className="flex items-start justify-between gap-3 px-3 py-2 text-sm"
             >
               <div className="min-w-0 flex-1">
-                <div className="font-medium truncate">{name || "(unnamed)"}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium truncate">{name || "(unnamed)"}</span>
+                  {(() => {
+                    const badge = badgeFor?.(it);
+                    if (!badge) return null;
+                    return (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+                          TONE_CLASSES[badge.tone]
+                        }`}
+                      >
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
+                </div>
                 <div className="mt-0.5 grid grid-cols-1 gap-x-4 gap-y-0.5 text-xs text-fg-tertiary md:grid-cols-3">
                   {fields
                     .filter((f) => f !== "name" && it[f] != null && it[f] !== "")
@@ -279,7 +318,16 @@ function UrlList({
           return (
             <li key={`${i}-${name}`} className="flex items-start justify-between gap-3 px-3 py-2">
               <div className="min-w-0 flex-1">
-                <div className="font-medium truncate">{String(u.title || u.name || u.url)}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium truncate">{String(u.title || u.name || u.url)}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+                      cached ? TONE_CLASSES.success : TONE_CLASSES.warning
+                    }`}
+                  >
+                    {cached ? "cached" : "needs fetch"}
+                  </span>
+                </div>
                 <div className="mt-0.5 text-xs text-fg-tertiary truncate">
                   <a
                     href={String(u.url)}
@@ -290,15 +338,11 @@ function UrlList({
                     {String(u.url)}
                   </a>
                 </div>
-                <div className="mt-0.5 text-xs">
-                  {cached ? (
-                    <span className="text-accent-success">
-                      cached · fetched {String(u.fetched_at ?? "?")}
-                    </span>
-                  ) : (
-                    <span className="text-accent-warning">no cache yet</span>
-                  )}
-                </div>
+                {cached && u.fetched_at ? (
+                  <p className="mt-0.5 text-[11px] text-fg-tertiary">
+                    fetched {String(u.fetched_at)}
+                  </p>
+                ) : null}
               </div>
               <div className="flex items-center gap-1">
                 <Button

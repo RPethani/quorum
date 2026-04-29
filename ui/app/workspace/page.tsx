@@ -130,14 +130,29 @@ export default function WorkspacePage() {
 
   // Lightweight digestion pulse — polls every 3s so we can flash a
   // "Digesting N…" chip in the header even when the dialog is closed.
+  // When the in-flight count drops to zero we also re-fetch the
+  // next-actions banner, since digestion completion isn't on the SSE
+  // stream and the banner would otherwise stay stale until the user
+  // reloads.
   useEffect(() => {
     let alive = true;
+    let prev = 0;
     const tick = async () => {
       try {
         const rows = await getDigestions();
         if (!alive) return;
         const inFlight = rows.filter((r) => r.status === "queued" || r.status === "running").length;
         setDigestionInFlight(inFlight);
+        // Edge: just finished. Refresh next-actions and the
+        // deliberation list (the bundle composition changes once a
+        // doc / repo is digested).
+        if (prev > 0 && inFlight === 0) {
+          void getNextActions()
+            .then(setNextActions)
+            .catch(() => {});
+          void getDeliberations().then(setList);
+        }
+        prev = inFlight;
       } catch {
         // network blip — leave the previous value
       }

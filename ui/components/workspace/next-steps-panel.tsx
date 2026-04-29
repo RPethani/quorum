@@ -18,13 +18,12 @@ const DIALOG_LABELS: Record<DialogId, string> = {
 /**
  * Persistent guidance panel above the deliberation pane.
  *
- * Three rendering modes, driven by action severity:
- *   1. Has blocking action → full-width amber banner with title +
- *      description + a primary action button. Visually obvious that
- *      collaboration cannot proceed until this is resolved.
- *   2. Only suggested / info actions → collapsed single-line strip
- *      (small bulb + "N tips"); click to expand the list.
- *   3. No actions → renders nothing.
+ * Two surfaces, no parent/child structure:
+ *   1. Blocking actions render as a flat list of equal-weight cards
+ *      inside one amber container. Each card is a single row: icon,
+ *      title, description, action. Compact — nothing collapses below.
+ *   2. Suggested actions render as a slim collapsible strip.
+ *   3. With nothing pending, nothing is rendered.
  */
 export function NextStepsPanel({
   actions,
@@ -34,76 +33,47 @@ export function NextStepsPanel({
   onOpenDialog: (id: DialogId) => void;
 }) {
   if (actions.length === 0) return null;
-
   const blocking = actions.filter((a) => a.severity === "blocking");
   const tips = actions.filter((a) => a.severity !== "blocking");
-
-  if (blocking.length > 0) {
-    return <BlockingBanner blocking={blocking} tips={tips} onOpenDialog={onOpenDialog} />;
-  }
-  return <TipsStrip tips={tips} onOpenDialog={onOpenDialog} />;
+  return (
+    <>
+      {blocking.length > 0 ? (
+        <BlockingList blocking={blocking} onOpenDialog={onOpenDialog} />
+      ) : null}
+      {tips.length > 0 ? <TipsStrip tips={tips} onOpenDialog={onOpenDialog} /> : null}
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------- //
-// Blocking — full-width amber banner. Until cleared, the user knows
-// they're stuck and has a one-click path forward.
+// Blocking — flat list, equal weight per item.
 // ---------------------------------------------------------------------- //
 
-function BlockingBanner({
+function BlockingList({
   blocking,
-  tips,
   onOpenDialog,
 }: {
   blocking: NextAction[];
-  tips: NextAction[];
   onOpenDialog: (id: DialogId) => void;
 }) {
-  const primary = blocking.find((a) => a.primary) ?? blocking[0];
-  const otherBlocking = blocking.filter((a) => a.id !== primary.id);
-  const [expanded, setExpanded] = useState(false);
-  const extraCount = otherBlocking.length + tips.length;
-
   return (
     <section className="border-b border-accent-warning/40 bg-accent-warning-weak text-fg-primary">
-      <div className="flex items-start gap-3 px-6 py-3">
-        <AlertTriangle size={18} className="mt-0.5 shrink-0 text-accent-warning" strokeWidth={2} />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-accent-warning">
-              Action required
-            </span>
-            <h3 className="text-sm font-semibold">{primary.title}</h3>
-          </div>
-          <p className="mt-1 text-sm text-fg-secondary">{primary.description}</p>
-          {extraCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="mt-2 inline-flex items-center gap-1 text-xs text-fg-tertiary hover:text-fg-primary transition-colors"
-            >
-              <ChevronDown
-                size={12}
-                className={`transition-transform ${expanded ? "rotate-180" : ""}`}
-                strokeWidth={2}
-              />
-              {expanded ? "Hide" : `${extraCount} more`}
-            </button>
-          ) : null}
-          {expanded ? (
-            <ul className="mt-3 space-y-3 border-t border-accent-warning/30 pt-3">
-              {[...otherBlocking, ...tips].map((a) => (
-                <li key={a.id} className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">{a.title}</div>
-                    <p className="mt-0.5 text-xs text-fg-secondary">{a.description}</p>
-                  </div>
-                  <ActionButton action={a} onOpenDialog={onOpenDialog} compact />
-                </li>
-              ))}
-            </ul>
-          ) : null}
+      <div className="px-6 py-2">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-accent-warning">
+          <AlertTriangle size={14} strokeWidth={2} />
+          {blocking.length === 1 ? "Action required" : `Action required · ${blocking.length}`}
         </div>
-        <ActionButton action={primary} onOpenDialog={onOpenDialog} />
+        <ul className="mt-1.5 divide-y divide-accent-warning/25">
+          {blocking.map((a) => (
+            <li key={a.id} className="flex items-center gap-3 py-1.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">{a.title}</div>
+                <p className="text-xs text-fg-secondary truncate">{a.description}</p>
+              </div>
+              <ActionButton action={a} onOpenDialog={onOpenDialog} />
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
@@ -144,14 +114,14 @@ function TipsStrip({
         />
       </button>
       {expanded ? (
-        <ul className="space-y-3 border-t border-border-default px-6 py-3">
+        <ul className="divide-y divide-border-default px-6 py-2">
           {tips.map((a) => (
-            <li key={a.id} className="flex items-start gap-3">
+            <li key={a.id} className="flex items-center gap-3 py-1.5">
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium">{a.title}</div>
-                <p className="mt-0.5 text-xs text-fg-secondary">{a.description}</p>
+                <p className="text-xs text-fg-secondary truncate">{a.description}</p>
               </div>
-              <ActionButton action={a} onOpenDialog={onOpenDialog} compact />
+              <ActionButton action={a} onOpenDialog={onOpenDialog} />
             </li>
           ))}
         </ul>
@@ -167,19 +137,16 @@ function TipsStrip({
 function ActionButton({
   action,
   onOpenDialog,
-  compact = false,
 }: {
   action: NextAction;
   onOpenDialog: (id: DialogId) => void;
-  compact?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   if (action.kind === "info") return null;
-  const size = compact ? "sm" : "sm";
   if (action.kind === "dialog" && action.payload) {
     const id = action.payload as DialogId;
     return (
-      <Button variant="primary" size={size} onClick={() => onOpenDialog(id)} className="shrink-0">
+      <Button variant="primary" size="sm" onClick={() => onOpenDialog(id)} className="shrink-0">
         {DIALOG_LABELS[id] || `Open ${id}`}
       </Button>
     );
@@ -187,8 +154,8 @@ function ActionButton({
   if (action.kind === "cli" && action.payload) {
     return (
       <Button
-        variant={compact ? "outline" : "primary"}
-        size={size}
+        variant="outline"
+        size="sm"
         onClick={() => {
           if (action.payload) {
             void navigator.clipboard.writeText(action.payload);

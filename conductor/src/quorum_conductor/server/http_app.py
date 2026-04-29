@@ -481,6 +481,30 @@ class QuorumHandler(BaseHTTPRequestHandler):
     def _reply_context(self) -> None:
         paths = self.server.paths
         manifest = load_context_manifest(paths)
+        # Decorate each entry with a derived `digested` / `cached`
+        # boolean so the UI can render proper "ready / pending" badges
+        # without computing paths client-side.
+        for repo in manifest.get("repos") or []:
+            if not isinstance(repo, dict):
+                continue
+            name = str(repo.get("name", ""))
+            repo["digested"] = bool(
+                name and (paths.context_repos / name / "digest.md").is_file()
+            )
+        for doc in manifest.get("docs") or []:
+            if not isinstance(doc, dict):
+                continue
+            name = str(doc.get("name", ""))
+            doc["digested"] = bool(
+                name and (paths.context_docs / "digested" / f"{name}.md").is_file()
+            )
+        for url in manifest.get("urls") or []:
+            if not isinstance(url, dict):
+                continue
+            name = str(url.get("name", ""))
+            url["cached"] = bool(
+                name and (paths.context_web / "cached" / f"{name}.md").is_file()
+            )
         self._reply_json(HTTPStatus.OK, manifest)
 
     def _reply_inboxes(self) -> None:
