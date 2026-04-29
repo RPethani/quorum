@@ -57,6 +57,51 @@ def test_append_move_raises_when_no_contributions_heading(tmp_path: Path) -> Non
         append_move(delib, "### [PROPOSAL] @x · 2026-04-28T00:00:00Z\n\nbody")
 
 
+def test_decision_flips_status_to_decided(tmp_path: Path) -> None:
+    delib = tmp_path / "0001-test.md"
+    _seed(delib)
+    decision = (
+        "### [DECISION] @human-rohan · 2026-04-29T10:00:00Z\n\n"
+        "## Decision\n\nShip the trial-only path."
+    )
+    append_move(delib, decision)
+    body = delib.read_text(encoding="utf-8")
+    assert "status: DECIDED" in body
+    assert "status: OPEN" not in body
+
+
+def test_override_also_flips_to_decided(tmp_path: Path) -> None:
+    delib = tmp_path / "0001-test.md"
+    _seed(delib)
+    override = (
+        "### [OVERRIDE] @human-rohan · 2026-04-29T10:00:00Z\n\n"
+        "## Decision\n\nUnilateral end."
+    )
+    append_move(delib, override)
+    assert "status: DECIDED" in delib.read_text(encoding="utf-8")
+
+
+def test_drop_flips_to_abandoned(tmp_path: Path) -> None:
+    delib = tmp_path / "0001-test.md"
+    _seed(delib)
+    drop = (
+        "### [DROP] @human-rohan · 2026-04-29T10:00:00Z\n\n## Reason\n\nNo longer relevant."
+    )
+    append_move(delib, drop)
+    assert "status: ABANDONED" in delib.read_text(encoding="utf-8")
+
+
+def test_non_terminal_move_leaves_status_alone(tmp_path: Path) -> None:
+    delib = tmp_path / "0001-test.md"
+    _seed(delib)
+    proposal = (
+        "### [PROPOSAL] @claude-opus · 2026-04-28T14:32:18Z\n\n"
+        "## Position\n\nShip trial-only."
+    )
+    append_move(delib, proposal)
+    assert "status: OPEN" in delib.read_text(encoding="utf-8")
+
+
 def test_update_inboxes_tags_other_handles_only(tmp_path: Path) -> None:
     inbox = tmp_path / "inbox"
     move = (

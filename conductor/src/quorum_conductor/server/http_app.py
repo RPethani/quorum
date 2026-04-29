@@ -370,10 +370,11 @@ class QuorumHandler(BaseHTTPRequestHandler):
     def _reply_deliberations(self) -> None:
         paths = self.server.paths
         rows: list[dict[str, Any]] = []
-        # Map deliberation_id -> count of pending lines in the human's
-        # inbox so the UI can flag which deliberations are waiting on
-        # the user.
-        pending_for_human = _human_pending_by_deliberation(paths)
+        # Map deliberation_id → 1 when the planner says the next
+        # action is on a manual handle for that deliberation. Source
+        # of truth is the same as the next-actions panel — keeps the
+        # left-rail badge from crying wolf about FYI inbox tags.
+        pending_for_human = _planner_human_pending(paths)
         if paths.deliberations.is_dir():
             for path in sorted(paths.deliberations.glob("*.md")):
                 try:
@@ -1634,6 +1635,16 @@ def _slugify(value: str) -> str:
     if not base:
         base = "url"
     return base[:48]
+
+
+def _planner_human_pending(paths: WorkspacePaths) -> dict[str, int]:
+    """Per-deliberation flag: 1 if the planner's next move is on a
+    manual handle (i.e. the human really is the next actor)."""
+    try:
+        result = plan(paths)
+    except Exception:
+        return {}
+    return {item.deliberation.id: 1 for item in result.items if item.is_manual}
 
 
 def _human_pending_by_deliberation(paths: WorkspacePaths) -> dict[str, int]:

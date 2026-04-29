@@ -18,6 +18,13 @@ from pathlib import Path
 _CONTRIBUTIONS_RE = re.compile(r"^##\s+Contributions\s*$", re.MULTILINE)
 _NEXT_H2_RE = re.compile(r"^##\s+\S", re.MULTILINE)
 _HANDLE_RE = re.compile(r"@[A-Za-z0-9_\-]+")
+_STATUS_LINE_RE = re.compile(r"^(status:\s*)(\S+)\s*$", re.MULTILINE)
+_FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+# Move-types that conclude a deliberation. DECISION is the normal end;
+# OVERRIDE is the human-issued unilateral end. ABANDONED via DROP is
+# also conclusive but uses a different terminal status.
+_DECIDED_MOVES = {"DECISION", "OVERRIDE"}
+_DROPPED_MOVES = {"DROP"}
 
 
 class AppendError(RuntimeError):
@@ -28,6 +35,9 @@ def append_move(deliberation_path: Path, move_text: str) -> None:
     """Insert `move_text` at the end of the `## Contributions` section.
 
     Caller is expected to hold a deliberation lock for the duration.
+    Also flips the frontmatter `status` when the appended move is
+    terminal (DECISION/OVERRIDE → DECIDED; DROP → ABANDONED), so the
+    planner sees the deliberation as done on the next tick.
     """
     if not deliberation_path.is_file():
         raise AppendError(f"{deliberation_path} does not exist")
@@ -45,7 +55,42 @@ def append_move(deliberation_path: Path, move_text: str) -> None:
     new_section = section.rstrip("\n") + "\n\n" + move_text.strip("\n") + "\n\n"
 
     new_body = body[:insert_start] + new_section + body[insert_end:]
+    new_body = _maybe_flip_status(new_body, move_text)
     deliberation_path.write_text(new_body, encoding="utf-8")
+
+
+def _maybe_flip_status(body: str, appended_move: str) -> str:
+    """Update frontmatter `status:` if the appended move is terminal."""
+    move_type = _peek_move_type(appended_move)
+    if move_type is None:
+        return body
+    if move_type in _DECIDED_MOVES:
+        target_status = "DECIDED"
+    elif move_type in _DROPPED_MOVES:
+        target_status = "ABANDONED"
+    else:
+        return body
+
+    fm_match = _FRONTMATTER_RE.match(body)
+    if not fm_match:
+        return body
+    fm_block = fm_match.group(0)
+    new_fm = _STATUS_LINE_RE.sub(
+        lambda m: m.group(0)
+        if m.group(2) == target_status
+        else f"{m.group(1)}{target_status}",
+        fm_block,
+        count=1,
+    )
+    if new_fm == fm_block:
+        return body
+    return new_fm + body[fm_match.end() :]
+
+
+def _peek_move_type(move_text: str) -> str | None:
+    """Pull the move type from the first `### [TYPE] ...` header."""
+    m = re.match(r"###\s*\[([A-Z_]+)\]", move_text.lstrip())
+    return m.group(1) if m else None
 
 
 def update_inboxes_from_move(
