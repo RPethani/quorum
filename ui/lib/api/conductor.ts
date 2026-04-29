@@ -238,6 +238,63 @@ export async function getEvents(since = 0): Promise<EventsResponse> {
   return getJSON<EventsResponse>(`/api/events?since=${since}`);
 }
 
+export type StreamMessage =
+  | { type: "events_appended"; payload: EventRecord[] }
+  | { type: "active_changed"; payload: { active: string[] } }
+  | { type: "state_changed"; payload: WorkspaceStateResponse }
+  | { type: "keepalive"; payload: Record<string, never> };
+
+export type StreamHandlers = {
+  onEvents?: (events: EventRecord[]) => void;
+  onActive?: (active: string[]) => void;
+  onState?: (state: WorkspaceStateResponse) => void;
+  onError?: (event: Event) => void;
+  onOpen?: () => void;
+};
+
+/**
+ * Subscribe to /api/stream via EventSource. Returns a close function.
+ * The conductor pushes 'events_appended', 'active_changed',
+ * 'state_changed', and 'keepalive' messages.
+ */
+export function subscribeStream(handlers: StreamHandlers): () => void {
+  if (typeof window === "undefined") {
+    return () => {
+      // no-op on the server
+    };
+  }
+  const url = `${base()}/api/stream`;
+  const source = new EventSource(url);
+  source.addEventListener("events_appended", (e) => {
+    if (!handlers.onEvents) return;
+    try {
+      handlers.onEvents(JSON.parse((e as MessageEvent).data));
+    } catch {
+      // ignore malformed payload
+    }
+  });
+  source.addEventListener("active_changed", (e) => {
+    if (!handlers.onActive) return;
+    try {
+      const payload = JSON.parse((e as MessageEvent).data) as { active: string[] };
+      handlers.onActive(payload.active);
+    } catch {
+      // ignore
+    }
+  });
+  source.addEventListener("state_changed", (e) => {
+    if (!handlers.onState) return;
+    try {
+      handlers.onState(JSON.parse((e as MessageEvent).data));
+    } catch {
+      // ignore
+    }
+  });
+  source.onopen = () => handlers.onOpen?.();
+  source.onerror = (e) => handlers.onError?.(e);
+  return () => source.close();
+}
+
 export async function applyWizard(payload: WizardPayload): Promise<{ applied: string[] }> {
   const res = await fetch(`${base()}/api/wizard/apply`, {
     method: "POST",

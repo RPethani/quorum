@@ -47,6 +47,7 @@ from ..workspace import (
     needs_bootstrap,
     status_summary,
 )
+from .stream import StreamHub, format_sse
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8500
@@ -58,9 +59,12 @@ class _ServerContext:
 
 
 class QuorumHTTPServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer carrying a `WorkspacePaths` reference."""
+    """ThreadingHTTPServer carrying a `WorkspacePaths` reference and the SSE hub."""
+
+    daemon_threads = True  # let SSE-handler threads die with the server.
 
     paths: WorkspacePaths
+    stream_hub: StreamHub | None = None
 
 
 def create_server(
@@ -72,6 +76,7 @@ def create_server(
     """Bind a server but do not start it. Useful for tests."""
     server = QuorumHTTPServer((host, port), QuorumHandler)
     server.paths = paths
+    server.stream_hub = StreamHub(paths)
     return server
 
 
@@ -125,6 +130,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_deliberation(ident)
             if path == "/api/events":
                 return self._reply_events(query)
+            if path == "/api/stream":
+                return self._handle_stream()
             if path == "/api/participants":
                 return self._reply_participants()
             if path == "/api/manifest":
@@ -310,6 +317,38 @@ class QuorumHandler(BaseHTTPRequestHandler):
                     }
                 )
         self._reply_json(HTTPStatus.OK, {"inboxes": out})
+
+    def _handle_stream(self) -> None:
+        """Long-lived SSE connection. Holds the request thread for the
+        lifetime of the client; the parent ThreadingHTTPServer keeps
+        other requests responsive in their own threads."""
+        hub = self.server.stream_hub
+        if hub is None:
+            return self._reply_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "stream hub not initialised"},
+            )
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self._cors_headers()
+        self.end_headers()
+
+        sub = hub.subscribe()
+        try:
+            while True:
+                try:
+                    msg = sub.get(timeout=30.0)
+                except Exception:  # queue.Empty or other
+                    continue
+                try:
+                    self.wfile.write(format_sse(msg))
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+        finally:
+            hub.unsubscribe(sub)
 
     def _reply_events(self, query: dict[str, list[str]]) -> None:
         since = 0

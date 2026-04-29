@@ -23,6 +23,7 @@ import {
   getManifest,
   getParticipants,
   getState,
+  subscribeStream,
 } from "@/lib/api/conductor";
 import { ChevronRight, Loader2, RotateCw } from "lucide-react";
 import Link from "next/link";
@@ -49,6 +50,8 @@ export default function WorkspacePage() {
   const [inboxes, setInboxes] = useState<InboxSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [active, setActive] = useState<DeliberationDetail | null>(null);
+  const [activeMarkers, setActiveMarkers] = useState<string[]>([]);
+  const [streamConnected, setStreamConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -90,9 +93,34 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     void refresh();
-    const handle = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(handle);
   }, [refresh]);
+
+  // Phase-8 SSE subscription. EventSource keeps the connection alive
+  // and pushes events_appended / active_changed / state_changed
+  // messages; we patch local state in place. A polling fallback every
+  // 30s recovers from a dropped connection without a UI refresh.
+  useEffect(() => {
+    let inboxesTimer: ReturnType<typeof setInterval> | null = null;
+    const close = subscribeStream({
+      onOpen: () => setStreamConnected(true),
+      onError: () => setStreamConnected(false),
+      onEvents: (incoming) => {
+        setEvents((prev) => [...prev, ...incoming]);
+        // Refresh derived data that's not on the stream yet.
+        void getDeliberations().then(setList);
+        void getInboxes().then(setInboxes);
+      },
+      onActive: (markers) => setActiveMarkers(markers),
+      onState: (s) => setState(s),
+    });
+    inboxesTimer = setInterval(() => {
+      void getInboxes().then(setInboxes);
+    }, 30_000);
+    return () => {
+      close();
+      if (inboxesTimer) clearInterval(inboxesTimer);
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedId) {
@@ -118,6 +146,8 @@ export default function WorkspacePage() {
         loading={loading}
         onRefresh={refresh}
         yourTurnPending={yourTurn?.pending_count ?? 0}
+        activeCount={activeMarkers.length}
+        streamConnected={streamConnected}
       />
       {error ? (
         <div className="border-b border-accent-danger bg-accent-danger-weak px-6 py-2 text-sm text-accent-danger">
@@ -191,15 +221,20 @@ function Header({
   loading,
   onRefresh,
   yourTurnPending,
+  activeCount,
+  streamConnected,
 }: {
   state: WorkspaceStateResponse | null;
   loading: boolean;
   onRefresh: () => void;
   yourTurnPending: number;
+  activeCount: number;
+  streamConnected: boolean;
 }) {
+  const costPct = state ? Math.round((state.cost.fraction || 0) * 100) : 0;
   return (
     <header className="flex items-center justify-between gap-4 border-b border-border-default bg-elevated px-6 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         <Link
           href="/"
           className="font-semibold tracking-tight hover:text-accent-primary transition-colors"
@@ -207,17 +242,32 @@ function Header({
           Quorum
         </Link>
         <ChevronRight size={14} className="text-fg-tertiary" strokeWidth={1.5} />
-        <span className="font-mono text-sm text-fg-secondary">
+        <span className="font-mono text-sm text-fg-secondary truncate">
           {state ? state.workspace_id.slice(0, 12) : "…"}
         </span>
         {state ? <Badge variant={badgeForState(state.state)}>{state.state}</Badge> : null}
         {state ? (
-          <span className="font-mono text-xs text-fg-tertiary">
-            ${state.cost.spent_usd.toFixed(2)} / ${state.cost.ceiling_usd.toFixed(2)}
+          <span
+            className={`font-mono text-xs ${
+              costPct > 80 ? "text-accent-warning" : "text-fg-tertiary"
+            }`}
+          >
+            ${state.cost.spent_usd.toFixed(2)} / ${state.cost.ceiling_usd.toFixed(2)} ({costPct}%)
           </span>
+        ) : null}
+        {activeCount > 0 ? (
+          <Badge variant="primary" className="composing-pulse">
+            {activeCount} composing
+          </Badge>
         ) : null}
       </div>
       <div className="flex items-center gap-2">
+        <span
+          className="font-mono text-xs text-fg-tertiary"
+          title={streamConnected ? "Live: SSE connected" : "Polling fallback"}
+        >
+          {streamConnected ? "● live" : "○ polling"}
+        </span>
         {yourTurnPending > 0 ? (
           <Badge variant="warning">{yourTurnPending} pending for you</Badge>
         ) : null}
