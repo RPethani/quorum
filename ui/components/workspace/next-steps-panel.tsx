@@ -58,17 +58,19 @@ function BlockingList({
 }) {
   return (
     <section className="border-b border-accent-warning/40 bg-accent-warning-weak text-fg-primary">
-      <div className="px-6 py-2">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-accent-warning">
-          <AlertTriangle size={14} strokeWidth={2} />
+      <div className="px-6 py-1.5">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent-warning">
+          <AlertTriangle size={11} strokeWidth={2.5} />
           {blocking.length === 1 ? "Action required" : `Action required · ${blocking.length}`}
         </div>
-        <ul className="mt-1.5 divide-y divide-accent-warning/25">
+        <ul className="divide-y divide-accent-warning/25">
           {blocking.map((a) => (
-            <li key={a.id} className="flex items-center gap-3 py-1.5">
+            <li key={a.id} className="flex items-center gap-3 py-1">
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">{a.title}</div>
-                <p className="text-xs text-fg-secondary truncate">{a.description}</p>
+                <div className="text-xs font-semibold">{a.title}</div>
+                <p className="text-[11px] text-fg-secondary truncate leading-tight">
+                  {a.description}
+                </p>
               </div>
               <ActionButton action={a} onOpenDialog={onOpenDialog} />
             </li>
@@ -114,12 +116,14 @@ function TipsStrip({
         />
       </button>
       {expanded ? (
-        <ul className="divide-y divide-border-default px-6 py-2">
+        <ul className="divide-y divide-border-default px-6 py-1.5">
           {tips.map((a) => (
-            <li key={a.id} className="flex items-center gap-3 py-1.5">
+            <li key={a.id} className="flex items-center gap-3 py-1">
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">{a.title}</div>
-                <p className="text-xs text-fg-secondary truncate">{a.description}</p>
+                <div className="text-xs font-semibold">{a.title}</div>
+                <p className="text-[11px] text-fg-secondary truncate leading-tight">
+                  {a.description}
+                </p>
               </div>
               <ActionButton action={a} onOpenDialog={onOpenDialog} />
             </li>
