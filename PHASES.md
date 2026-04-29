@@ -132,7 +132,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 10 — Raw YAML editor + human response forms ⬜
+## Phase 10 — Raw YAML editor + human response forms ✅
 
 **Goal.** §9.8 Tier 3 raw editor; structured response form (§9.7); human-initiated moves (§12.5): INTERJECTION, OVERRIDE, REOPEN, DROP, STEER, CLARIFY.
 
