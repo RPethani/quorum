@@ -69,6 +69,14 @@ _LOOP_MAX_TICKS_DEFAULT: int = 0  # 0 == unlimited
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Bare `quorum` → drop into the interactive shell. Anything with
+    # a subcommand (or `--help` / `--version`) goes through argparse.
+    real_argv = sys.argv[1:] if argv is None else argv
+    if not real_argv:
+        from .tui import run_shell
+
+        return run_shell()
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 
