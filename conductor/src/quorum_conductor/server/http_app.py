@@ -34,8 +34,10 @@ from ..core import (
     load_deliberation,
     load_routing_defaults,
     load_workspace_config,
+    parse_participants,
     plan,
 )
+from ..core.context_bundle import load_context_manifest
 from ..events import EventLogger, RoutingDecisionEvent, read_events
 from ..paths import WorkspacePaths
 from ..transport.runner import run_items_sync
@@ -123,6 +125,14 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_deliberation(ident)
             if path == "/api/events":
                 return self._reply_events(query)
+            if path == "/api/participants":
+                return self._reply_participants()
+            if path == "/api/manifest":
+                return self._reply_manifest()
+            if path == "/api/context":
+                return self._reply_context()
+            if path == "/api/inboxes":
+                return self._reply_inboxes()
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -132,6 +142,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
         try:
             if url.path == "/api/step":
                 return self._handle_step()
+            if url.path == "/api/wizard/apply":
+                return self._handle_wizard_apply()
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -227,6 +239,78 @@ class QuorumHandler(BaseHTTPRequestHandler):
             )
         self._reply_json(HTTPStatus.OK, _plan_to_json(result))
 
+    def _reply_participants(self) -> None:
+        paths = self.server.paths
+        rows = parse_participants(paths.participants)
+        self._reply_json(
+            HTTPStatus.OK,
+            {
+                "participants": [
+                    {
+                        "handle": p.handle,
+                        "display_name": p.display_name,
+                        "model": p.model,
+                        "transport": p.transport,
+                        "cli_command": p.cli_command,
+                        "quota_daily": p.quota_daily,
+                        "quota_per_deliberation": p.quota_per_deliberation,
+                        "permission_capability": p.permission_capability,
+                        "account_label": p.account_label,
+                        "health": p.health,
+                        "inherits_fitness_from": p.inherits_fitness_from,
+                    }
+                    for p in rows
+                ],
+            },
+        )
+
+    def _reply_manifest(self) -> None:
+        paths = self.server.paths
+        body: dict[str, Any] = {
+            "exists": paths.outcome_manifest.is_file(),
+            "markdown": "",
+            "progress": None,
+        }
+        if paths.outcome_manifest.is_file():
+            body["markdown"] = paths.outcome_manifest.read_text(encoding="utf-8")
+        # Progress comes from state.yaml's manifest block.
+        state = load_state(paths.state_yaml)
+        m = state.manifest
+        body["progress"] = {
+            "status": m.status,
+            "total_artifacts": m.total_artifacts,
+            "artifacts_complete": m.artifacts_complete,
+            "artifacts_in_production": m.artifacts_in_production,
+            "artifacts_pending": m.artifacts_pending,
+            "quality_gates_clear": m.quality_gates_clear,
+            "closing_ceremony_eligible": m.closing_ceremony_eligible,
+        }
+        self._reply_json(HTTPStatus.OK, body)
+
+    def _reply_context(self) -> None:
+        paths = self.server.paths
+        manifest = load_context_manifest(paths)
+        self._reply_json(HTTPStatus.OK, manifest)
+
+    def _reply_inboxes(self) -> None:
+        paths = self.server.paths
+        out: list[dict[str, Any]] = []
+        if paths.inbox.is_dir():
+            for entry in sorted(paths.inbox.glob("*.md")):
+                body = entry.read_text(encoding="utf-8") if entry.is_file() else ""
+                pending_lines = [
+                    line for line in body.splitlines() if line.strip().startswith("- pending:")
+                ]
+                out.append(
+                    {
+                        "handle": entry.stem,
+                        "filename": entry.name,
+                        "body": body,
+                        "pending_count": len(pending_lines),
+                    }
+                )
+        self._reply_json(HTTPStatus.OK, {"inboxes": out})
+
     def _reply_events(self, query: dict[str, list[str]]) -> None:
         since = 0
         if "since" in query:
@@ -320,6 +404,95 @@ class QuorumHandler(BaseHTTPRequestHandler):
             "error": ir.error,
         }
         self._reply_json(HTTPStatus.OK, body)
+
+    def _handle_wizard_apply(self) -> None:
+        """Apply Phase-7 setup-wizard answers to the workspace.
+
+        Body schema (all fields optional; only provided fields are
+        applied):
+
+            {
+              "manifest_template": "saas-product" | ... | null,
+              "mode": "interactive" | "autonomous",
+              "unavailability_policy": "strict" | "substitute" |
+                                       "substitute_aggressively",
+              "cost_ceiling_usd": 50.0,
+              "problem_statement": "<full text>"
+            }
+
+        Edits config.yaml + state.yaml + problem-statement.md in place.
+        """
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+
+        applied: list[str] = []
+
+        if "problem_statement" in payload:
+            text = str(payload["problem_statement"]).strip()
+            if text:
+                if not text.endswith("\n"):
+                    text += "\n"
+                paths.problem_statement.write_text(text, encoding="utf-8")
+                applied.append("problem_statement")
+
+        if any(k in payload for k in ("cost_ceiling_usd", "unavailability_policy")):
+            self._update_config_yaml(paths, payload)
+            applied.append("config.yaml")
+
+        if "mode" in payload:
+            self._update_state_mode(paths, str(payload["mode"]))
+            applied.append("state.mode")
+
+        self._reply_json(HTTPStatus.OK, {"applied": applied})
+
+    @staticmethod
+    def _update_config_yaml(paths: WorkspacePaths, payload: dict[str, Any]) -> None:
+        import yaml
+
+        config_text = paths.config_yaml.read_text(encoding="utf-8") if paths.config_yaml.is_file() else ""
+        # Round-trip through YAML so we can edit fields without losing
+        # comments only on lines we don't touch. This is best-effort —
+        # YAML comments are inherently fragile under structured edits.
+        raw = yaml.safe_load(config_text) or {}
+        if not isinstance(raw, dict):
+            raw = {}
+        if "cost_ceiling_usd" in payload:
+            cost = raw.setdefault("cost", {}) if isinstance(raw.get("cost"), dict) else {}
+            cost["ceiling_usd"] = float(payload["cost_ceiling_usd"])
+            cost.setdefault("enforce", True)
+            raw["cost"] = cost
+        if "unavailability_policy" in payload:
+            raw["unavailability_policy"] = str(payload["unavailability_policy"])
+        paths.config_yaml.write_text(
+            yaml.safe_dump(raw, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _update_state_mode(paths: WorkspacePaths, mode: str) -> None:
+        from ..workspace import WorkspaceMode, save_state
+
+        if mode not in {m.value for m in WorkspaceMode}:
+            return
+        state = load_state(paths.state_yaml)
+        state.mode = WorkspaceMode(mode)
+        save_state(paths.state_yaml, state)
+
+    def _read_json_body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length).decode("utf-8")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSON body: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object")
+        return data
 
     # ------------------ helpers ----------------------------------------
     def _reply_json(self, status: HTTPStatus, body: dict[str, Any]) -> None:

@@ -22,16 +22,28 @@ export default function HomePage() {
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Link
+          href="/workspace"
+          className="inline-flex h-9 items-center rounded-md bg-accent-primary px-4 text-sm font-medium text-white hover:opacity-90 transition-opacity duration-100"
+        >
+          Open the workspace →
+        </Link>
+        <Link
+          href="/setup"
+          className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
+        >
+          Run setup wizard →
+        </Link>
+        <Link
           href="/design-system"
           className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
         >
-          Open the design-system showcase →
+          Design system →
         </Link>
         <Link
           href="/dev-vertical-slice"
           className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
         >
-          Open the dev-only vertical slice →
+          Dev vertical slice →
         </Link>
       </div>
       <p className="mt-3 text-xs text-fg-tertiary">

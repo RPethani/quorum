@@ -273,9 +273,127 @@ def test_unknown_route_returns_404(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------- #
 
 
+def test_participants_endpoint(tmp_path: Path) -> None:
+    paths = init_workspace(InitOptions(target=tmp_path / "ws"))
+    fake = _write_fake_cli(tmp_path / "fake.py", _GOOD)
+    _participants(paths, fake)
+    with _running_server(paths) as (host, port):
+        status, body = _get(host, port, "/api/participants")
+    assert status == 200
+    assert isinstance(body, dict)
+    participants = body["participants"]
+    assert isinstance(participants, list)
+    handles = [p["handle"] for p in participants]
+    assert "@fake-cli" in handles
+    assert "@human-rohan" in handles
+
+
+def test_manifest_endpoint(tmp_path: Path) -> None:
+    paths = init_workspace(InitOptions(target=tmp_path / "ws"))
+    with _running_server(paths) as (host, port):
+        status, body = _get(host, port, "/api/manifest")
+    assert status == 200
+    assert isinstance(body, dict)
+    assert body["exists"] is True
+    progress = body["progress"]
+    assert isinstance(progress, dict)
+    assert progress["status"] == "DRAFTING"
+
+
+def test_inboxes_endpoint(tmp_path: Path) -> None:
+    paths = init_workspace(InitOptions(target=tmp_path / "ws"))
+    (paths.inbox / "@gemini-pro.md").write_text(
+        "- pending: PROPOSAL in #0001 by @claude-opus\n",
+        encoding="utf-8",
+    )
+    with _running_server(paths) as (host, port):
+        status, body = _get(host, port, "/api/inboxes")
+    assert status == 200
+    assert isinstance(body, dict)
+    inboxes = body["inboxes"]
+    assert isinstance(inboxes, list)
+    handles = {ib["handle"] for ib in inboxes}
+    assert "@gemini-pro" in handles
+    g = next(ib for ib in inboxes if ib["handle"] == "@gemini-pro")
+    assert g["pending_count"] == 1
+
+
+def test_context_endpoint(tmp_path: Path) -> None:
+    paths = init_workspace(InitOptions(target=tmp_path / "ws"))
+    from quorum_conductor.core.context_bundle import save_context_manifest
+
+    save_context_manifest(
+        paths,
+        {
+            "schema_version": "0.1",
+            "repos": [{"name": "backend", "path": "/abs/x", "relevance": "high"}],
+            "docs": [],
+            "urls": [],
+            "notes": [],
+        },
+    )
+    with _running_server(paths) as (host, port):
+        status, body = _get(host, port, "/api/context")
+    assert status == 200
+    assert isinstance(body, dict)
+    repos = body["repos"]
+    assert isinstance(repos, list)
+    assert repos[0]["name"] == "backend"
+
+
+def test_wizard_apply_endpoint_writes_changes(tmp_path: Path) -> None:
+    paths = init_workspace(InitOptions(target=tmp_path / "ws"))
+    payload = {
+        "problem_statement": "# Problem\n\nDecide X.\n",
+        "cost_ceiling_usd": 25.0,
+        "unavailability_policy": "strict",
+        "mode": "autonomous",
+    }
+    body_bytes = json.dumps(payload).encode("utf-8")
+    with _running_server(paths) as (host, port):
+        from http.client import HTTPConnection
+
+        conn = HTTPConnection(host, port, timeout=5)
+        try:
+            conn.request(
+                "POST",
+                "/api/wizard/apply",
+                body=body_bytes,
+                headers={"Content-Type": "application/json"},
+            )
+            resp = conn.getresponse()
+            status = resp.status
+            body = json.loads(resp.read().decode("utf-8"))
+        finally:
+            conn.close()
+    assert status == 200, body
+    assert "problem_statement" in body["applied"]
+    assert "config.yaml" in body["applied"]
+    assert "state.mode" in body["applied"]
+    assert "Decide X" in paths.problem_statement.read_text(encoding="utf-8")
+    state = json.loads(json.dumps({"x": "y"}))  # noqa: F841 — keep mypy happy
+
+    from quorum_conductor.core.config import load_workspace_config
+    from quorum_conductor.workspace import load_state
+
+    cfg = load_workspace_config(paths.config_yaml)
+    assert cfg.cost_ceiling_usd == 25.0
+    assert cfg.unavailability_policy == "strict"
+    assert load_state(paths.state_yaml).mode.value == "autonomous"
+
+
 @pytest.mark.parametrize(
     "path",
-    ["/api/state", "/api/plan", "/api/deliberations", "/api/events"],
+    [
+        "/api/state",
+        "/api/plan",
+        "/api/deliberations",
+        "/api/events",
+        "/api/participants",
+        "/api/manifest",
+        "/api/inboxes",
+        "/api/context",
+    ],
 )
 def test_get_endpoints_emit_cors_header(tmp_path: Path, path: str) -> None:
     paths = init_workspace(InitOptions(target=tmp_path / "ws"))

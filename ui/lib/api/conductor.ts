@@ -149,3 +149,104 @@ export async function getPlan(): Promise<PlanResponse> {
 export async function step(): Promise<StepResponse> {
   return postJSON<StepResponse>("/api/step");
 }
+
+// ----- Phase-7 endpoints -------------------------------------------------- //
+
+export type ParticipantRow = {
+  handle: string;
+  display_name: string;
+  model: string;
+  transport: "cli" | "manual" | "mcp" | "ide" | string;
+  cli_command: string;
+  quota_daily: number | null;
+  quota_per_deliberation: number | null;
+  permission_capability: string;
+  account_label: string;
+  health: string;
+  inherits_fitness_from: string | null;
+};
+
+export type ManifestProgress = {
+  status: "DRAFTING" | "READY" | "LOCKED";
+  total_artifacts: number;
+  artifacts_complete: number;
+  artifacts_in_production: number;
+  artifacts_pending: number;
+  quality_gates_clear: boolean;
+  closing_ceremony_eligible: boolean;
+};
+
+export type ManifestResponse = {
+  exists: boolean;
+  markdown: string;
+  progress: ManifestProgress | null;
+};
+
+export type InboxSummary = {
+  handle: string;
+  filename: string;
+  body: string;
+  pending_count: number;
+};
+
+export type ContextManifest = {
+  schema_version: string;
+  repos: Array<Record<string, unknown>>;
+  docs: Array<Record<string, unknown>>;
+  urls: Array<Record<string, unknown>>;
+  notes: Array<Record<string, unknown>>;
+};
+
+export type EventRecord = Record<string, unknown> & {
+  type: string;
+  ts?: string;
+};
+
+export type EventsResponse = {
+  since: number;
+  next: number;
+  events: EventRecord[];
+};
+
+export type WizardPayload = {
+  manifest_template?: string | null;
+  mode?: "interactive" | "autonomous";
+  unavailability_policy?: "strict" | "substitute" | "substitute_aggressively";
+  cost_ceiling_usd?: number;
+  problem_statement?: string;
+};
+
+export async function getParticipants(): Promise<ParticipantRow[]> {
+  const body = await getJSON<{ participants: ParticipantRow[] }>("/api/participants");
+  return body.participants;
+}
+
+export async function getManifest(): Promise<ManifestResponse> {
+  return getJSON<ManifestResponse>("/api/manifest");
+}
+
+export async function getInboxes(): Promise<InboxSummary[]> {
+  const body = await getJSON<{ inboxes: InboxSummary[] }>("/api/inboxes");
+  return body.inboxes;
+}
+
+export async function getContextManifest(): Promise<ContextManifest> {
+  return getJSON<ContextManifest>("/api/context");
+}
+
+export async function getEvents(since = 0): Promise<EventsResponse> {
+  return getJSON<EventsResponse>(`/api/events?since=${since}`);
+}
+
+export async function applyWizard(payload: WizardPayload): Promise<{ applied: string[] }> {
+  const res = await fetch(`${base()}/api/wizard/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`/api/wizard/apply → ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as { applied: string[] };
+}
