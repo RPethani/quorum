@@ -59,7 +59,7 @@ const HUMAN_MOVE_TYPES: MoveType[] = [
 export function ComposeMoveForm({
   deliberationId,
   defaultMoveType = "DECISION",
-  defaultAuthor = "@human-rohan",
+  defaultAuthor = "@human",
   onClose,
   onAppended,
 }: {

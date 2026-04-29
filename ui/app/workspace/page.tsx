@@ -367,6 +367,7 @@ export default function WorkspacePage() {
       {composeOpen && active ? (
         <ComposeMoveForm
           deliberationId={active.id}
+          defaultAuthor={participants.find((p) => p.transport === "manual")?.handle ?? "@human"}
           defaultMoveType={
             (active.human_next_action?.move_type as
               | "ANSWER"

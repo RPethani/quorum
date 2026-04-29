@@ -1206,7 +1206,11 @@ class QuorumHandler(BaseHTTPRequestHandler):
 
         deliberation_id = str(payload.get("deliberation_id", "")).strip()
         move_type = str(payload.get("move_type", "")).strip().upper()
-        author = str(payload.get("author", "")).strip() or "@human-rohan"
+        author = (
+            str(payload.get("author", "")).strip()
+            or _detect_human_handle(paths)
+            or "@human"
+        )
         targets = payload.get("targets")
         sections = payload.get("sections") or {}
         if not deliberation_id or not move_type or not isinstance(sections, dict):
@@ -1625,6 +1629,23 @@ def _what_human_should_do(move_type: str, role: str, reason: str) -> str:
         f"Author a {move_type} ({role}). Open Compose move and fill in the "
         f"sections; the move type is pre-selected for you."
     )
+
+
+def _detect_human_handle(paths: WorkspacePaths) -> str | None:
+    """Return the first manual-transport participant's handle, if any.
+
+    Used as the default author for human-issued moves so the UI never
+    has to hard-code `@human-rohan` (the historical default).
+    """
+    if not paths.participants.is_file():
+        return None
+    try:
+        for p in parse_participants(paths.participants):
+            if p.transport == "manual":
+                return p.handle
+    except Exception:
+        return None
+    return None
 
 
 def _slugify(value: str) -> str:
