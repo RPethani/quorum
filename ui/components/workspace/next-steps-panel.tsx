@@ -57,14 +57,109 @@ function BlockingList({
   onOpenDialog: (id: DialogId) => void;
 }) {
   return (
-    <section className="border-b border-accent-warning/40 bg-accent-warning-weak text-fg-primary">
+    <BannerSection
+      tone="warning"
+      eyebrow={blocking.length === 1 ? "Action required" : `Action required · ${blocking.length}`}
+      icon={<AlertTriangle size={11} strokeWidth={2.5} />}
+      items={blocking}
+      onOpenDialog={onOpenDialog}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------- //
+// Tips — same shape as blocking, neutral colour, collapsible by default.
+// ---------------------------------------------------------------------- //
+
+function TipsStrip({
+  tips,
+  onOpenDialog,
+}: {
+  tips: NextAction[];
+  onOpenDialog: (id: DialogId) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (tips.length === 0) return null;
+  return (
+    <BannerSection
+      tone="info"
+      eyebrow={tips.length === 1 ? "Suggestion" : `Suggestions · ${tips.length}`}
+      icon={<Lightbulb size={11} strokeWidth={2.5} />}
+      items={expanded ? tips : tips.slice(0, 1)}
+      onOpenDialog={onOpenDialog}
+      headerExtra={
+        tips.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-fg-tertiary hover:text-fg-primary transition-colors"
+          >
+            {expanded ? "Hide" : `${tips.length - 1} more`}
+            <ChevronDown
+              size={10}
+              strokeWidth={2}
+              className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          </button>
+        ) : null
+      }
+    />
+  );
+}
+
+// ---------------------------------------------------------------------- //
+// Shared banner shape — same typography, spacing, and rhythm; only the
+// colour family changes.
+// ---------------------------------------------------------------------- //
+
+const TONES: Record<
+  "warning" | "info",
+  {
+    section: string;
+    divider: string;
+    eyebrow: string;
+  }
+> = {
+  warning: {
+    section: "border-b border-accent-warning/40 bg-accent-warning-weak",
+    divider: "divide-accent-warning/25",
+    eyebrow: "text-accent-warning",
+  },
+  info: {
+    section: "border-b border-border-default bg-recessed/60",
+    divider: "divide-border-default",
+    eyebrow: "text-fg-tertiary",
+  },
+};
+
+function BannerSection({
+  tone,
+  eyebrow,
+  icon,
+  items,
+  onOpenDialog,
+  headerExtra,
+}: {
+  tone: "warning" | "info";
+  eyebrow: string;
+  icon: React.ReactNode;
+  items: NextAction[];
+  onOpenDialog: (id: DialogId) => void;
+  headerExtra?: React.ReactNode;
+}) {
+  const t = TONES[tone];
+  return (
+    <section className={`${t.section} text-fg-primary`}>
       <div className="px-6 py-1.5">
-        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent-warning">
-          <AlertTriangle size={11} strokeWidth={2.5} />
-          {blocking.length === 1 ? "Action required" : `Action required · ${blocking.length}`}
+        <div
+          className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${t.eyebrow}`}
+        >
+          {icon}
+          {eyebrow}
+          {headerExtra}
         </div>
-        <ul className="divide-y divide-accent-warning/25">
-          {blocking.map((a) => (
+        <ul className={`divide-y ${t.divider}`}>
+          {items.map((a) => (
             <li key={a.id} className="flex items-center gap-3 py-1">
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold">{a.title}</div>
@@ -77,59 +172,6 @@ function BlockingList({
           ))}
         </ul>
       </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------- //
-// Tips — slim strip, single line, click to expand. No urgency colour.
-// ---------------------------------------------------------------------- //
-
-function TipsStrip({
-  tips,
-  onOpenDialog,
-}: {
-  tips: NextAction[];
-  onOpenDialog: (id: DialogId) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  if (tips.length === 0) return null;
-  const first = tips[0];
-
-  return (
-    <section className="border-b border-border-default bg-recessed/60 text-sm">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-2 px-6 py-1.5 text-left hover:bg-recessed transition-colors"
-      >
-        <Lightbulb size={14} className="shrink-0 text-fg-tertiary" strokeWidth={1.5} />
-        <span className="text-xs text-fg-secondary truncate">
-          {tips.length > 1 ? `${tips.length} suggestions — ${first.title}` : first.title}
-        </span>
-        <ChevronDown
-          size={12}
-          className={`ml-auto shrink-0 text-fg-tertiary transition-transform ${
-            expanded ? "rotate-180" : ""
-          }`}
-          strokeWidth={1.5}
-        />
-      </button>
-      {expanded ? (
-        <ul className="divide-y divide-border-default px-6 py-1.5">
-          {tips.map((a) => (
-            <li key={a.id} className="flex items-center gap-3 py-1">
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold">{a.title}</div>
-                <p className="text-[11px] text-fg-secondary truncate leading-tight">
-                  {a.description}
-                </p>
-              </div>
-              <ActionButton action={a} onOpenDialog={onOpenDialog} />
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </section>
   );
 }
