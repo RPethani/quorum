@@ -1,9 +1,9 @@
 "use client";
 
-import { ThemeToggle } from "@/components/design-system/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
 import { ManifestProgressBar } from "@/components/workspace/manifest-progress";
 import { ParticipantsList } from "@/components/workspace/participants-list";
@@ -19,20 +19,20 @@ import {
   getParticipants,
   getState,
 } from "@/lib/api/conductor";
-import { Lock, Save, Settings2 } from "lucide-react";
-import Link from "next/link";
+import { Lock, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * Phase-9 settings page. Eight panels per design-doc §9.8 Tier 2,
- * mostly read-only with edit affordances on the live-editable fields
- * (cost ceiling, unavailability policy, mode-when-INITIALIZED). Frozen
- * fields show a lock indicator.
- *
- * Permissions panel ships in Phase 11 (broker); here it shows the
- * "broker disabled in v1" copy plus the workspace's allowlist.
+ * Settings dialog — same eight panels as the previous full-page
+ * settings, just rendered inside the workspace's modal layer.
  */
-export default function SettingsPage() {
+export function SettingsDialog({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const [state, setState] = useState<WorkspaceStateResponse | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [manifest, setManifest] = useState<ManifestResponse | null>(null);
@@ -59,42 +59,26 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    if (!open) return;
     void refresh();
-  }, [refresh]);
+  }, [open, refresh]);
 
   const isInitialized = state?.state === "INITIALIZED";
 
   return (
-    <div className="min-h-screen bg-canvas text-fg-primary">
-      <header className="flex items-center justify-between border-b border-border-default bg-elevated px-6 py-3">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/workspace"
-            className="font-semibold tracking-tight hover:text-accent-primary transition-colors"
-          >
-            Quorum
-          </Link>
-          <span className="text-fg-tertiary">/</span>
-          <span className="font-medium">Settings</span>
-          <Settings2 size={14} className="text-fg-tertiary" strokeWidth={1.5} />
-        </div>
-        <ThemeToggle />
-      </header>
-
-      <main className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+    <Dialog open={open} onClose={onClose} title="Settings" size="lg">
+      <div className="space-y-6">
         {error ? (
           <Card className="border-accent-danger">
             <CardContent className="text-sm text-accent-danger">API error. {error}</CardContent>
           </Card>
         ) : null}
-
         {savingMessage ? (
           <Card className="border-accent-success">
             <CardContent className="text-sm text-accent-success">{savingMessage}</CardContent>
           </Card>
         ) : null}
 
-        {/* Panel 1 — Participants */}
         <Card>
           <CardHeader>
             <CardTitle>Participants</CardTitle>
@@ -108,14 +92,12 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Panel 2 — Context */}
         <Card>
           <CardHeader>
             <CardTitle>Context</CardTitle>
             <p className="text-sm text-fg-secondary">
               Repos, documents, web URLs, notes. Add via{" "}
-              <code className="font-mono">quorum context add-…</code> CLI for v1; UI panels land in
-              a follow-up.
+              <code className="font-mono">quorum context add-…</code> CLI for v1.
             </p>
           </CardHeader>
           <CardContent className="text-sm">
@@ -123,33 +105,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Panel 3 — Permissions (broker placeholder) */}
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Permissions <Badge variant="muted">broker comes in Phase 11</Badge>
-            </CardTitle>
-            <p className="text-sm text-fg-secondary">
-              v1 passes restrictive <code className="font-mono">--allowedTools</code> flags to CLIs
-              that support them. Out-of-allowlist requests fail moves cleanly. The opt-in live
-              broker (with permission-request cards in this UI) ships in Phase 11.
-            </p>
-          </CardHeader>
-        </Card>
-
-        {/* Panel 4 — How decisions get made */}
-        <Card>
-          <CardHeader>
-            <CardTitle>How decisions get made</CardTitle>
-            <p className="text-sm text-fg-secondary">
-              The decider is read from each deliberation's frontmatter. v1 default:{" "}
-              <code className="font-mono">@human-rohan</code>. Decider panels and deputy deciders
-              are edited in <code className="font-mono">config.yaml</code>.
-            </p>
-          </CardHeader>
-        </Card>
-
-        {/* Panel 5 — When agents are unavailable */}
         <UnavailabilityPanel
           state={state}
           onSaved={(msg) => {
@@ -158,19 +113,6 @@ export default function SettingsPage() {
           }}
         />
 
-        {/* Panel 6 — When the human is unavailable */}
-        <Card>
-          <CardHeader>
-            <CardTitle>When the human is unavailable</CardTitle>
-            <p className="text-sm text-fg-secondary">
-              Human-timeout policy lives in <code className="font-mono">config.yaml</code>'s{" "}
-              <code className="font-mono">human_timeout</code> block. v1: deputy decisions for
-              tactical-and-below stakes after a 30-minute timeout. UI editor in a follow-up.
-            </p>
-          </CardHeader>
-        </Card>
-
-        {/* Panel 7 — Workspace lifecycle */}
         <LifecyclePanel
           state={state}
           isInitialized={isInitialized}
@@ -180,14 +122,12 @@ export default function SettingsPage() {
           }}
         />
 
-        {/* Panel 8 — Manifest */}
         <Card>
           <CardHeader>
             <CardTitle>Manifest</CardTitle>
             <p className="text-sm text-fg-secondary">
               Outcome manifest progress. Edit the manifest itself in{" "}
-              <code className="font-mono">outcome-manifest.md</code>; the bootstrapper produces the
-              initial draft.
+              <code className="font-mono">outcome-manifest.md</code>.
             </p>
           </CardHeader>
           <CardContent>
@@ -201,8 +141,8 @@ export default function SettingsPage() {
             ) : null}
           </CardContent>
         </Card>
-      </main>
-    </div>
+      </div>
+    </Dialog>
   );
 }
 

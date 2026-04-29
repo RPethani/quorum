@@ -53,6 +53,7 @@ SLASH_COMMANDS: dict[str, str] = {
     "/status": "Workspace + service status.",
     "/plan": "Show what the loop would invoke next.",
     "/step": "Run the next pending invocation.",
+    "/run": "Foreground loop until idle. Args: [--max-ticks N]",
     "/up": "Start the conductor server + UI in the background.",
     "/down": "Stop the server / UI. Args: [server|ui]",
     "/restart": "Restart the server / UI. Args: [server|ui]",
@@ -60,7 +61,11 @@ SLASH_COMMANDS: dict[str, str] = {
     "/doctor": "Health-check registered handles.",
     "/pause": "Stop the daemonised conductor loop.",
     "/start": "Start the daemonised conductor loop.",
+    "/archive": "Archive the workspace. Args: [--reason …]",
+    "/unarchive": "Unarchive the workspace.",
+    "/context": "Manage context. Args: add-repo <path> | add-doc <file> | add-note <name> --text … | list",
     "/open": "Open the UI in your default browser.",
+    "/next": "Show next-best actions for the current state.",
     "/init": "Scaffold a new workspace here. Args: [path]",
     "/cd": "Change the active workspace. Args: <path>",
     "/clear": "Clear the screen.",
@@ -195,6 +200,7 @@ def _dispatch(state: _ShellState, line: str) -> bool:
         "/status": lambda s, r: _run_cli_with_path(s, ["status", *r]),
         "/plan": lambda s, r: _run_cli_with_path(s, ["plan", *r]),
         "/step": lambda s, r: _run_cli_with_path(s, ["step", *r]),
+        "/run": lambda s, r: _run_cli_with_path(s, ["run", *r]),
         "/up": lambda s, r: _run_cli_with_path(s, ["up", *r]),
         "/down": lambda s, r: _run_cli_with_path(s, ["down", *r]),
         "/restart": lambda s, r: _run_cli_with_path(s, ["restart", *r]),
@@ -202,6 +208,10 @@ def _dispatch(state: _ShellState, line: str) -> bool:
         "/doctor": lambda s, r: _run_cli_with_path(s, ["doctor", *r]),
         "/pause": lambda s, r: _run_cli_with_path(s, ["pause", *r]),
         "/start": lambda s, r: _run_cli_with_path(s, ["start", *r]),
+        "/archive": lambda s, r: _run_cli_with_path(s, ["archive", *r]),
+        "/unarchive": lambda s, r: _run_cli_with_path(s, ["unarchive", *r]),
+        "/context": lambda s, r: _run_cli_with_path(s, ["context", *r]),
+        "/next": _do_next_actions,
     }
     fn = mapping.get(cmd)
     if fn is None:
@@ -328,6 +338,28 @@ def _try_autostart(state: _ShellState) -> None:
     print()
 
 
+def _do_next_actions(state: _ShellState, _rest: list[str]) -> None:
+    """Show the same next-best-action list the UI's panel surfaces."""
+    if state.paths is None:
+        print("no workspace.")
+        return
+    from ..core.next_actions import compute_next_actions
+
+    actions = compute_next_actions(state.paths)
+    print()
+    for i, a in enumerate(actions):
+        marker = "★" if a.primary else " "
+        print(f"  {marker} {a.title}")
+        print(f"      {a.description}")
+        if a.payload and a.kind == "cli":
+            print(f"      run: {a.payload}")
+        elif a.payload and a.kind == "dialog":
+            print(f"      open: {a.payload} dialog in the web UI")
+        if i < len(actions) - 1:
+            print()
+    print()
+
+
 def _do_open(state: _ShellState) -> bool:
     if state.paths is None:
         print("no workspace.")
@@ -355,7 +387,10 @@ def _on_exit(state: _ShellState) -> int:
         print(f"  ● server  http://127.0.0.1:{server.port}")
     if ui.state == "running":
         print(f"  ● ui      http://127.0.0.1:{ui.port}")
-    answer = input("stop them on exit? [y/N] ").strip().lower()
+    try:
+        answer = input("stop them on exit? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = ""
     if answer == "y":
         from ..cli import main as cli_main
 

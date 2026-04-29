@@ -38,6 +38,7 @@ from ..core import (
     plan,
 )
 from ..core.context_bundle import load_context_manifest
+from ..core.next_actions import compute_next_actions
 from ..core.permissions import (
     PermissionStakes,
 )
@@ -182,6 +183,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_raw_file(path[len("/api/raw/") :])
             if path == "/api/permissions":
                 return self._reply_permissions_list()
+            if path == "/api/next-actions":
+                return self._reply_next_actions()
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -555,6 +558,13 @@ class QuorumHandler(BaseHTTPRequestHandler):
         target.write_text(content, encoding="utf-8")
         self._reply_json(
             HTTPStatus.OK, {"path": rel, "size_bytes": len(content.encode("utf-8"))}
+        )
+
+    def _reply_next_actions(self) -> None:
+        paths = self.server.paths
+        actions = compute_next_actions(paths)
+        self._reply_json(
+            HTTPStatus.OK, {"actions": [a.to_dict() for a in actions]}
         )
 
     def _reply_permissions_list(self) -> None:

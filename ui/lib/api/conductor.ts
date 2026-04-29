@@ -214,6 +214,15 @@ export type EventsResponse = {
   events: EventRecord[];
 };
 
+export type NextAction = {
+  id: string;
+  title: string;
+  description: string;
+  kind: "dialog" | "cli" | "info";
+  payload?: string;
+  primary: boolean;
+};
+
 export type WizardPayload = {
   manifest_template?: string | null;
   mode?: "interactive" | "autonomous";
@@ -255,6 +264,11 @@ export async function getManifest(): Promise<ManifestResponse> {
 export async function getInboxes(): Promise<InboxSummary[]> {
   const body = await getJSON<{ inboxes: InboxSummary[] }>("/api/inboxes");
   return body.inboxes;
+}
+
+export async function getNextActions(): Promise<NextAction[]> {
+  const body = await getJSON<{ actions: NextAction[] }>("/api/next-actions");
+  return body.actions;
 }
 
 export async function getContextManifest(): Promise<ContextManifest> {

@@ -1,6 +1,8 @@
 "use client";
 
 import { ThemeToggle } from "@/components/design-system/theme-toggle";
+import { SettingsDialog } from "@/components/dialogs/settings-dialog";
+import { SetupDialog } from "@/components/dialogs/setup-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -8,6 +10,7 @@ import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { ComposeMoveForm } from "@/components/workspace/compose-move-form";
 import { DeliberationsList } from "@/components/workspace/deliberations-list";
 import { ManifestProgressBar } from "@/components/workspace/manifest-progress";
+import { NextStepsPanel } from "@/components/workspace/next-steps-panel";
 import { ParticipantsList } from "@/components/workspace/participants-list";
 import {
   type DeliberationDetail,
@@ -15,6 +18,7 @@ import {
   type EventRecord,
   type InboxSummary,
   type ManifestResponse,
+  type NextAction,
   type ParticipantRow,
   type WorkspaceStateResponse,
   getDeliberation,
@@ -22,12 +26,12 @@ import {
   getEvents,
   getInboxes,
   getManifest,
+  getNextActions,
   getParticipants,
   getState,
   subscribeStream,
 } from "@/lib/api/conductor";
-import { ChevronRight, Loader2, RotateCw } from "lucide-react";
-import Link from "next/link";
+import { ChevronRight, Loader2, RotateCw, Settings2, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
@@ -56,18 +60,22 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [nextActions, setNextActions] = useState<NextAction[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [s, m, ds, ps, ev, ib] = await Promise.all([
+      const [s, m, ds, ps, ev, ib, na] = await Promise.all([
         getState(),
         getManifest(),
         getDeliberations(),
         getParticipants(),
         getEvents(0),
         getInboxes(),
+        getNextActions().catch(() => []),
       ]);
       setState(s);
       setManifest(m);
@@ -75,6 +83,7 @@ export default function WorkspacePage() {
       setParticipants(ps);
       setEvents(ev.events);
       setInboxes(ib);
+      setNextActions(na);
       const next = selectedId ?? ds[0]?.id ?? null;
       if (next !== selectedId) setSelectedId(next);
       if (next) {
@@ -111,6 +120,9 @@ export default function WorkspacePage() {
         // Refresh derived data that's not on the stream yet.
         void getDeliberations().then(setList);
         void getInboxes().then(setInboxes);
+        void getNextActions()
+          .then(setNextActions)
+          .catch(() => {});
       },
       onActive: (markers) => setActiveMarkers(markers),
       onState: (s) => setState(s),
@@ -147,6 +159,8 @@ export default function WorkspacePage() {
         state={state}
         loading={loading}
         onRefresh={refresh}
+        onOpenSetup={() => setSetupOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
         yourTurnPending={yourTurn?.pending_count ?? 0}
         activeCount={activeMarkers.length}
         streamConnected={streamConnected}
@@ -156,6 +170,13 @@ export default function WorkspacePage() {
           API error. {error}. Make sure <code className="font-mono">quorum serve</code> is running.
         </div>
       ) : null}
+      <NextStepsPanel
+        actions={nextActions}
+        onOpenDialog={(id) => {
+          if (id === "setup") setSetupOpen(true);
+          else if (id === "settings") setSettingsOpen(true);
+        }}
+      />
       <div className="flex flex-1 min-h-0">
         <aside className="w-[280px] shrink-0 border-r border-border-default bg-recessed flex flex-col">
           <div className="px-4 py-3 border-b border-border-default">
@@ -229,6 +250,12 @@ export default function WorkspacePage() {
           }}
         />
       ) : null}
+      <SetupDialog
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        onApplied={() => void refresh()}
+      />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
@@ -237,6 +264,8 @@ function Header({
   state,
   loading,
   onRefresh,
+  onOpenSetup,
+  onOpenSettings,
   yourTurnPending,
   activeCount,
   streamConnected,
@@ -244,6 +273,8 @@ function Header({
   state: WorkspaceStateResponse | null;
   loading: boolean;
   onRefresh: () => void;
+  onOpenSetup: () => void;
+  onOpenSettings: () => void;
   yourTurnPending: number;
   activeCount: number;
   streamConnected: boolean;
@@ -252,12 +283,7 @@ function Header({
   return (
     <header className="flex items-center justify-between gap-4 border-b border-border-default bg-elevated px-6 py-3">
       <div className="flex items-center gap-3 min-w-0">
-        <Link
-          href="/"
-          className="font-semibold tracking-tight hover:text-accent-primary transition-colors"
-        >
-          Quorum
-        </Link>
+        <span className="font-semibold tracking-tight">Quorum</span>
         <ChevronRight size={14} className="text-fg-tertiary" strokeWidth={1.5} />
         <span className="font-mono text-sm text-fg-secondary truncate">
           {state ? state.workspace_id.slice(0, 12) : "…"}
@@ -288,6 +314,12 @@ function Header({
         {yourTurnPending > 0 ? (
           <Badge variant="warning">{yourTurnPending} pending for you</Badge>
         ) : null}
+        <Button variant="outline" size="sm" onClick={onOpenSetup} title="Open setup">
+          <Wand2 size={14} /> Setup
+        </Button>
+        <Button variant="outline" size="sm" onClick={onOpenSettings} title="Open settings">
+          <Settings2 size={14} /> Settings
+        </Button>
         <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
           Refresh
