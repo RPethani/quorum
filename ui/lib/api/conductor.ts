@@ -296,6 +296,24 @@ export async function getInboxes(): Promise<InboxSummary[]> {
   return body.inboxes;
 }
 
+export async function createDeliberation(payload: {
+  title: string;
+  question: string;
+  tags?: string[];
+}): Promise<{ id: string; filename: string }> {
+  const res = await fetchOrFriendlyError(`${base()}/api/deliberations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Create failed: ${res.status}`);
+  }
+  return (await res.json()) as { id: string; filename: string };
+}
+
 export async function getNextActions(): Promise<NextAction[]> {
   const body = await getJSON<{ actions: NextAction[] }>("/api/next-actions");
   return body.actions;

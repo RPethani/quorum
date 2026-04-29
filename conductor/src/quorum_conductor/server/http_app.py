@@ -231,6 +231,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_digest_queue()
             if url.path == "/api/context/urls/refresh":
                 return self._handle_url_refresh()
+            if url.path == "/api/deliberations":
+                return self._handle_deliberation_create()
             if url.path.startswith("/api/permissions/") and url.path.endswith("/approve"):
                 rid = url.path[len("/api/permissions/") : -len("/approve")]
                 return self._handle_permission_decide(rid, approve=True)
@@ -950,6 +952,86 @@ class QuorumHandler(BaseHTTPRequestHandler):
         self._reply_json(
             HTTPStatus.OK,
             {"repos": [s.to_dict() for s in states]},
+        )
+
+    def _handle_deliberation_create(self) -> None:
+        """Create a new deliberation file and return its id + path.
+
+        Body: { "title": "...", "question": "...", "tags"?: ["foo"] }
+        Picks the next free id by counting existing deliberations.
+        """
+        from datetime import UTC, datetime
+
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        title = str(payload.get("title", "")).strip()
+        question = str(payload.get("question", "")).strip()
+        tags_raw = payload.get("tags") or []
+        if not title:
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST, {"error": "title is required"}
+            )
+        if not question:
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST, {"error": "question is required"}
+            )
+        tags: list[str] = []
+        if isinstance(tags_raw, list):
+            tags = [str(t).strip() for t in tags_raw if str(t).strip()]
+
+        paths.deliberations.mkdir(parents=True, exist_ok=True)
+        # Next-free 4-digit id, scanning existing files.
+        existing_ids: set[int] = set()
+        for p in paths.deliberations.glob("*.md"):
+            try:
+                existing_ids.add(int(p.name.split("-", 1)[0]))
+            except ValueError:
+                continue
+        next_id = 1
+        while next_id in existing_ids:
+            next_id += 1
+        slug_id = f"{next_id:04d}"
+        slug_title = _slugify(title) or "deliberation"
+        target = paths.deliberations / f"{slug_id}-{slug_title}.md"
+
+        decider = _detect_human_handle(paths) or "@human"
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        body = (
+            "---\n"
+            f'id: "{slug_id}"\n'
+            f"title: {title}\n"
+            "status: OPEN\n"
+            "protocol_version: 0.1\n"
+            f"created: {today}\n"
+            "parent: null\n"
+            "children: []\n"
+            "roles:\n"
+            "  proposer: null\n"
+            "  critics: []\n"
+            "  synthesizer: null\n"
+            f'  decider: "{decider}"\n'
+            f"tags: [{', '.join(tags)}]\n"
+            "relevant_context:\n"
+            "  repos: []\n"
+            "  docs: []\n"
+            "  urls: []\n"
+            "  notes: all\n"
+            "final: false\n"
+            "---\n\n"
+            "## Question\n\n"
+            f"{question}\n\n"
+            "## Context\n\n"
+            "## Contributions\n\n"
+            "## Open Questions\n\n"
+            "## Decision\n"
+        )
+        target.write_text(body, encoding="utf-8")
+        self._reply_json(
+            HTTPStatus.OK,
+            {"id": slug_id, "filename": target.name},
         )
 
     def _handle_url_refresh(self) -> None:

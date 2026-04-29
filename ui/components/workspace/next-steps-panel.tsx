@@ -5,7 +5,15 @@ import type { NextAction } from "@/lib/api/conductor";
 import { AlertTriangle, ChevronDown, Copy, Lightbulb } from "lucide-react";
 import { useState } from "react";
 
-type DialogId = "setup" | "settings" | "add-agent" | "context" | "digestion" | "permissions";
+type DialogId =
+  | "setup"
+  | "settings"
+  | "add-agent"
+  | "context"
+  | "digestion"
+  | "permissions"
+  | "raw-editor"
+  | "new-deliberation";
 
 const DIALOG_LABELS: Record<DialogId, string> = {
   setup: "Setup",
@@ -14,6 +22,8 @@ const DIALOG_LABELS: Record<DialogId, string> = {
   context: "Context",
   digestion: "Digestion",
   permissions: "Permissions",
+  "raw-editor": "Raw editor",
+  "new-deliberation": "New deliberation",
 };
 
 /**

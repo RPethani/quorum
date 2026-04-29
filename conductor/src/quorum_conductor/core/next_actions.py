@@ -68,6 +68,13 @@ class WorkspacePhase(Enum):
     AWAITING_HUMAN = "awaiting_human"
     READY_TO_RUN = "ready_to_run"
     RUNNING = "running"
+    # The bootstrapper deliberation is DECIDED but the manifest itself
+    # hasn't been written. The user needs to ratify the proposed
+    # manifest into outcome-manifest.md before real work can start.
+    NEEDS_MANIFEST_RATIFICATION = "needs_manifest_ratification"
+    # Manifest is ratified but no follow-up deliberations exist. The
+    # user needs to start a deliberation on the first artifact.
+    NEEDS_FIRST_DELIBERATION = "needs_first_deliberation"
     IDLE = "idle"
 
 
@@ -89,6 +96,9 @@ class _Signals:
     # NOT the same as inbox pending lines, which include FYI tags.
     human_blocker_ids: list[str]
     has_context: bool
+    seed_decided: bool  # bootstrapper deliberation #0001 reached DECIDED
+    manifest_status: str  # DRAFTING | READY | LOCKED
+    non_seed_deliberation_count: int
 
 
 def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
@@ -123,6 +133,18 @@ def _resolve_phase(s: _Signals) -> WorkspacePhase:
         return WorkspacePhase.AWAITING_HUMAN
     if s.deliberation_count > 0 and s.state_value == "INITIALIZED":
         return WorkspacePhase.READY_TO_RUN
+    # Workspace started, seed deliberation closed, manifest still
+    # DRAFTING → the user needs to ratify the manifest content into
+    # outcome-manifest.md before real work can start.
+    if s.seed_decided and s.manifest_status == "DRAFTING":
+        return WorkspacePhase.NEEDS_MANIFEST_RATIFICATION
+    # Manifest ratified but no follow-up deliberations exist yet.
+    if (
+        s.seed_decided
+        and s.manifest_status in {"READY", "LOCKED"}
+        and s.non_seed_deliberation_count == 0
+    ):
+        return WorkspacePhase.NEEDS_FIRST_DELIBERATION
     if s.state_value == "ACTIVE":
         return WorkspacePhase.RUNNING
     return WorkspacePhase.IDLE
@@ -256,6 +278,44 @@ def _actions_for(phase: WorkspacePhase, s: _Signals) -> list[NextAction]:
             )
         ]
 
+    if phase is WorkspacePhase.NEEDS_MANIFEST_RATIFICATION:
+        return [
+            NextAction(
+                id="ratify-manifest",
+                title="Ratify the manifest the bootstrapper proposed",
+                description=(
+                    "Deliberation #0001 was decided, but outcome-manifest.md "
+                    "is still DRAFTING. Open the Raw editor → "
+                    "outcome-manifest.md and paste the manifest content from "
+                    "the seed deliberation's PROPOSAL/SYNTHESIS, then change "
+                    "`status: DRAFTING` to `status: READY`. Real work begins "
+                    "after that."
+                ),
+                kind="dialog",
+                severity="blocking",
+                payload="raw-editor",
+                primary=True,
+            )
+        ]
+
+    if phase is WorkspacePhase.NEEDS_FIRST_DELIBERATION:
+        return [
+            NextAction(
+                id="start-first-deliberation",
+                title="Start the first deliberation on a manifest artifact",
+                description=(
+                    "The manifest is ratified. Pick the first artifact you want "
+                    "the agents to work on and open a deliberation for it. "
+                    "Click 'New deliberation' in the workspace header to "
+                    "create one."
+                ),
+                kind="dialog",
+                severity="blocking",
+                payload="new-deliberation",
+                primary=True,
+            )
+        ]
+
     # READY_TO_RUN / RUNNING / IDLE — no blocker, only suggestions.
     out: list[NextAction] = []
     if phase is WorkspacePhase.READY_TO_RUN:
@@ -300,6 +360,7 @@ def _gather_signals(paths: WorkspacePaths) -> _Signals:
     summary = status_summary(paths)
     cli_count, healthy_count, unhealthy = _cli_health_counts(paths)
     pending_digests, pending_urls = _undigested_counts(paths)
+    seed_decided, non_seed_count = _seed_and_followup_counts(paths)
     return _Signals(
         statement_empty=_file_empty(paths.problem_statement),
         deliberation_count=summary.deliberation_count,
@@ -312,7 +373,60 @@ def _gather_signals(paths: WorkspacePaths) -> _Signals:
         pending_permissions=_pending_permission_count(paths),
         human_blocker_ids=_human_blocker_ids(paths),
         has_context=_has_context(paths),
+        seed_decided=seed_decided,
+        manifest_status=_manifest_status(paths),
+        non_seed_deliberation_count=non_seed_count,
     )
+
+
+def _manifest_status(paths: WorkspacePaths) -> str:
+    """Read the `status:` field from outcome-manifest.md frontmatter.
+
+    Returns `DRAFTING` (the safe default) on any read or parse error.
+    """
+    if not paths.outcome_manifest.is_file():
+        return "DRAFTING"
+    try:
+        text = paths.outcome_manifest.read_text(encoding="utf-8")
+    except OSError:
+        return "DRAFTING"
+    import re
+
+    m = re.search(r"^status:\s*(\S+)\s*$", text, re.MULTILINE)
+    if not m:
+        return "DRAFTING"
+    return m.group(1).upper()
+
+
+def _seed_and_followup_counts(paths: WorkspacePaths) -> tuple[bool, int]:
+    """Return (seed_decided, count of non-seed deliberations).
+
+    The "seed" is deliberation #0001 if it ratifies outcome-manifest.md.
+    `seed_decided` is True when its file's frontmatter is in a terminal
+    state (DECIDED or ABANDONED). non_seed_count is the number of
+    deliberations other than the seed.
+    """
+    from .deliberation import load_deliberation
+
+    seed_decided = False
+    non_seed = 0
+    if not paths.deliberations.is_dir():
+        return False, 0
+    for path in paths.deliberations.glob("*.md"):
+        try:
+            meta = load_deliberation(path)
+        except Exception:
+            continue
+        is_seed = meta.id == "0001" and (
+            str(meta.extras.get("ratifies", "") or "").strip().lower()
+            == "outcome-manifest.md"
+        )
+        if is_seed:
+            if meta.status.upper() in {"DECIDED", "ABANDONED"}:
+                seed_decided = True
+        else:
+            non_seed += 1
+    return seed_decided, non_seed
 
 
 def _human_blocker_ids(paths: WorkspacePaths) -> list[str]:

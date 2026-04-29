@@ -33,6 +33,9 @@ def _signals(**overrides: object) -> _Signals:
         "pending_permissions": 0,
         "human_blocker_ids": [],
         "has_context": True,
+        "seed_decided": False,
+        "manifest_status": "DRAFTING",
+        "non_seed_deliberation_count": 0,
     }
     base.update(overrides)
     return _Signals(**base)  # type: ignore[arg-type]
@@ -91,7 +94,35 @@ def test_phase_ready_to_run_when_initialized_with_delibs() -> None:
 
 
 def test_phase_running_when_active_and_idle() -> None:
-    s = _signals(state_value="ACTIVE")
+    s = _signals(state_value="ACTIVE", non_seed_deliberation_count=2)
+    assert _resolve_phase(s) is WorkspacePhase.RUNNING
+
+
+def test_phase_needs_manifest_ratification_when_seed_done_but_manifest_drafting() -> None:
+    s = _signals(seed_decided=True, manifest_status="DRAFTING")
+    assert _resolve_phase(s) is WorkspacePhase.NEEDS_MANIFEST_RATIFICATION
+    actions = _actions_for(_resolve_phase(s), s)
+    assert [a.id for a in actions] == ["ratify-manifest"]
+
+
+def test_phase_needs_first_deliberation_when_manifest_ready_but_no_followup() -> None:
+    s = _signals(
+        seed_decided=True,
+        manifest_status="READY",
+        non_seed_deliberation_count=0,
+    )
+    assert _resolve_phase(s) is WorkspacePhase.NEEDS_FIRST_DELIBERATION
+    actions = _actions_for(_resolve_phase(s), s)
+    assert [a.id for a in actions] == ["start-first-deliberation"]
+
+
+def test_phase_running_once_followup_deliberation_exists() -> None:
+    s = _signals(
+        state_value="ACTIVE",
+        seed_decided=True,
+        manifest_status="LOCKED",
+        non_seed_deliberation_count=1,
+    )
     assert _resolve_phase(s) is WorkspacePhase.RUNNING
 
 

@@ -4,6 +4,7 @@ import { ThemeToggle } from "@/components/design-system/theme-toggle";
 import { AddAgentDialog } from "@/components/dialogs/add-agent-dialog";
 import { ContextDialog } from "@/components/dialogs/context-dialog";
 import { DigestionDialog } from "@/components/dialogs/digestion-dialog";
+import { NewDeliberationDialog } from "@/components/dialogs/new-deliberation-dialog";
 import { PermissionsDialog } from "@/components/dialogs/permissions-dialog";
 import { RawEditorDialog } from "@/components/dialogs/raw-editor-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
@@ -41,6 +42,7 @@ import {
   BookOpen,
   ChevronRight,
   Code2,
+  FilePlus,
   KeyRound,
   Loader2,
   Plus,
@@ -84,6 +86,7 @@ export default function WorkspacePage() {
   const [digestionOpen, setDigestionOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [rawEditorOpen, setRawEditorOpen] = useState(false);
+  const [newDelibOpen, setNewDelibOpen] = useState(false);
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
   const [digestionInFlight, setDigestionInFlight] = useState(0);
@@ -237,6 +240,7 @@ export default function WorkspacePage() {
         onOpenDigestion={() => setDigestionOpen(true)}
         onOpenPermissions={() => setPermissionsOpen(true)}
         onOpenRawEditor={() => setRawEditorOpen(true)}
+        onNewDeliberation={() => setNewDelibOpen(true)}
         showSetup={setupNeeded ?? false}
         yourTurnPending={yourTurn?.pending_count ?? 0}
         activeCount={activeMarkers.length}
@@ -257,6 +261,8 @@ export default function WorkspacePage() {
           else if (id === "context") setContextOpen(true);
           else if (id === "digestion") setDigestionOpen(true);
           else if (id === "permissions") setPermissionsOpen(true);
+          else if (id === "raw-editor") setRawEditorOpen(true);
+          else if (id === "new-deliberation") setNewDelibOpen(true);
         }}
       />
       <div className="flex flex-1 min-h-0">
@@ -410,6 +416,14 @@ export default function WorkspacePage() {
       <DigestionDialog open={digestionOpen} onClose={() => setDigestionOpen(false)} />
       <PermissionsDialog open={permissionsOpen} onClose={() => setPermissionsOpen(false)} />
       <RawEditorDialog open={rawEditorOpen} onClose={() => setRawEditorOpen(false)} />
+      <NewDeliberationDialog
+        open={newDelibOpen}
+        onClose={() => setNewDelibOpen(false)}
+        onCreated={(id) => {
+          setSelectedId(id);
+          void refresh();
+        }}
+      />
     </div>
   );
 }
@@ -424,6 +438,7 @@ function Header({
   onOpenDigestion,
   onOpenPermissions,
   onOpenRawEditor,
+  onNewDeliberation,
   showSetup,
   yourTurnPending,
   activeCount,
@@ -439,6 +454,7 @@ function Header({
   onOpenDigestion: () => void;
   onOpenPermissions: () => void;
   onOpenRawEditor: () => void;
+  onNewDeliberation: () => void;
   showSetup: boolean;
   yourTurnPending: number;
   activeCount: number;
@@ -496,6 +512,9 @@ function Header({
             <Wand2 size={14} />
           </IconBtn>
         ) : null}
+        <IconBtn onClick={onNewDeliberation} title="Start a new deliberation">
+          <FilePlus size={14} />
+        </IconBtn>
         <IconBtn onClick={onOpenContext} title="Manage context">
           <BookOpen size={14} />
         </IconBtn>
