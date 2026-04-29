@@ -18,16 +18,26 @@ from ..paths import WorkspacePaths
 from ..workspace.status import status_summary
 
 ActionKind = Literal["dialog", "cli", "info"]
+ActionSeverity = Literal["blocking", "suggested", "info"]
 
 
 @dataclass(frozen=True)
 class NextAction:
-    """One actionable suggestion to surface in the UI."""
+    """One actionable suggestion to surface in the UI.
+
+    `severity` drives the visual treatment:
+      * "blocking"  — collaboration cannot start / continue until this
+        is resolved. UI renders this as a prominent amber banner.
+      * "suggested" — useful but not required. UI renders these as a
+        slim collapsible strip.
+      * "info"      — passive nudge with no action button.
+    """
 
     id: str
     title: str
     description: str
     kind: ActionKind
+    severity: ActionSeverity = "suggested"
     # For kind="dialog": a string the UI maps to a known modal id.
     # For kind="cli": a copy-paste-friendly command (CLI or slash form).
     # For kind="info": no payload, just the description.
@@ -55,10 +65,11 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
                 title="Tell Quorum what you're working on",
                 description=(
                     "Open the setup dialog to enter a problem statement, pick a manifest "
-                    "template, and choose your involvement level. Until this is done, the "
-                    "loop has nothing concrete to plan against."
+                    "template, and choose your involvement level. The loop can't make "
+                    "progress until this is done."
                 ),
                 kind="dialog",
+                severity="blocking",
                 payload="setup",
                 primary=True,
             )
@@ -72,11 +83,12 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
                 id="register-handle",
                 title="Register at least one CLI handle",
                 description=(
-                    "The loop needs at least one cli-transport participant (e.g. claude, "
-                    "codex) to author proposals and critiques. Edit "
-                    "registers/participants.md, then verify with `quorum doctor`."
+                    "Collaboration can't start without an agent. Edit "
+                    "registers/participants.md to add a cli-transport row "
+                    "(claude, codex, etc.), then run `quorum doctor` to verify."
                 ),
                 kind="cli",
+                severity="blocking",
                 payload="quorum doctor",
                 primary=not actions,
             )
@@ -93,6 +105,7 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
                     "respond. The loop pauses on these until you author the next move."
                 ),
                 kind="info",
+                severity="blocking",
                 primary=not actions,
             )
         )
@@ -108,62 +121,31 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
                     "shell, or daemonise the loop with `quorum start`."
                 ),
                 kind="cli",
+                severity="suggested",
                 payload="/step",
                 primary=not actions,
             )
         )
 
-    # 5. Workspace ACTIVE with no manual pendings → encourage step or watch.
-    if (
-        summary.state.state.value == "ACTIVE"
-        and summary.inbox_pending_count == 0
-        and summary.deliberation_count > 0
-    ):
-        actions.append(
-            NextAction(
-                id="watch-progress",
-                title="Loop is running — watch the activity feed",
-                description=(
-                    "Quorum will surface a fresh action when something needs your "
-                    "attention. Or run `/plan` in the shell to peek at the next "
-                    "scheduled invocation."
-                ),
-                kind="cli",
-                payload="/plan",
-                primary=not actions,
-            )
-        )
-
-    # 6. Always-available: register more agents, add context.
+    # 5. Always-available: add context to ground the agents.
     if cli_count > 0 and not _has_context(paths):
         actions.append(
             NextAction(
                 id="add-context",
-                title="Optional: add a repo or document for grounding",
+                title="Add a repo or document for grounding",
                 description=(
-                    "Agents read everything you register under `context/`. Add a repo "
+                    "Agents read everything registered under `context/`. Add a repo "
                     "with `quorum context add-repo <path>` or a doc with "
                     "`quorum context add-doc <path>`."
                 ),
                 kind="cli",
+                severity="suggested",
                 payload="quorum context add-repo .",
             )
         )
 
-    if not actions:
-        # Steady state: nothing urgent. Surface a soft "you're good" hint.
-        actions.append(
-            NextAction(
-                id="all-clear",
-                title="Nothing pending right now",
-                description=(
-                    "The loop is idle and you have no blocked moves. New activity will "
-                    "appear here automatically. Use Settings to tune cost, mode, or "
-                    "substitution policy."
-                ),
-                kind="info",
-            )
-        )
+    # No "all-clear" filler — when there's nothing to suggest, return [] so
+    # the UI hides the panel completely. Less is more when collab is humming.
     return actions
 
 

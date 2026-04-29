@@ -219,6 +219,7 @@ export type NextAction = {
   title: string;
   description: string;
   kind: "dialog" | "cli" | "info";
+  severity: "blocking" | "suggested" | "info";
   payload?: string;
   primary: boolean;
 };
