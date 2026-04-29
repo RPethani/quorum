@@ -226,6 +226,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_context_add("url")
             if url.path == "/api/context/digest":
                 return self._handle_digest_queue()
+            if url.path == "/api/context/urls/refresh":
+                return self._handle_url_refresh()
             if url.path.startswith("/api/permissions/") and url.path.endswith("/approve"):
                 rid = url.path[len("/api/permissions/") : -len("/approve")]
                 return self._handle_permission_decide(rid, approve=True)
@@ -681,7 +683,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
             name = str(payload.get("name") or repo_path.name).strip()
             paths.context_repos.mkdir(parents=True, exist_ok=True)
             (paths.context_repos / name).mkdir(parents=True, exist_ok=True)
-            entry = {
+            entry: dict[str, Any] = {
                 "name": name,
                 "path": str(repo_path),
                 "role": str(payload.get("role", "")).strip(),
@@ -698,6 +700,12 @@ class QuorumHandler(BaseHTTPRequestHandler):
             return self._reply_json(HTTPStatus.OK, {"added": "repo", "name": name})
 
         if kind == "doc":
+            from ..core.context_extract import (
+                DOC_DIGEST_TOKEN_THRESHOLD,
+                DocumentExtractError,
+                extract_doc,
+            )
+
             doc_path_str = str(payload.get("path", "")).strip()
             if not doc_path_str:
                 return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "path required"})
@@ -708,14 +716,27 @@ class QuorumHandler(BaseHTTPRequestHandler):
                     {"error": f"{doc_path} is not a file"},
                 )
             name = str(payload.get("name") or doc_path.stem).strip()
+            try:
+                extracted = extract_doc(doc_path)
+            except DocumentExtractError as exc:
+                return self._reply_json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
+                )
+
             raw_dir = paths.context_docs / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
-            target = raw_dir / doc_path.name
-            target.write_bytes(doc_path.read_bytes())
+            # Always store extracted text as `<name>.md` so the bundle
+            # collector finds it regardless of source extension.
+            target = raw_dir / f"{name}.md"
+            target.write_text(extracted.markdown, encoding="utf-8")
+            needs_digest = extracted.tokens_estimated >= DOC_DIGEST_TOKEN_THRESHOLD
             entry = {
                 "name": name,
                 "source_path": str(doc_path),
+                "source_format": doc_path.suffix.lower().lstrip("."),
                 "stored_path": str(target.relative_to(paths.root)),
+                "tokens_estimated": extracted.tokens_estimated,
+                "needs_digest": needs_digest,
                 "added_at": now,
             }
             docs = manifest.setdefault("docs", [])
@@ -726,7 +747,15 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 docs.append(entry)
             save_context_manifest(paths, manifest)
             _ = copytree  # silence unused import for ruff (used elsewhere later)
-            return self._reply_json(HTTPStatus.OK, {"added": "doc", "name": name})
+            return self._reply_json(
+                HTTPStatus.OK,
+                {
+                    "added": "doc",
+                    "name": name,
+                    "tokens_estimated": extracted.tokens_estimated,
+                    "needs_digest": needs_digest,
+                },
+            )
 
         if kind == "note":
             name = str(payload.get("name", "")).strip()
@@ -747,14 +776,35 @@ class QuorumHandler(BaseHTTPRequestHandler):
             return self._reply_json(HTTPStatus.OK, {"added": "note", "name": name})
 
         if kind == "url":
+            from ..core.context_extract import UrlFetchError, fetch_url
+
             href = str(payload.get("url", "")).strip()
             if not href:
                 return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "url required"})
-            name = str(payload.get("name") or href).strip()
+            requested_name = str(payload.get("name") or "").strip()
+            refresh_policy = str(payload.get("refresh_policy") or "manual").strip()
+            try:
+                fetched = fetch_url(href)
+            except UrlFetchError as exc:
+                return self._reply_json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
+                )
+            # Use page title if no name was supplied; sluggify so it's
+            # safe as a filename.
+            slug = _slugify(requested_name or fetched.title or href)
+            cached_dir = paths.context_web / "cached"
+            cached_dir.mkdir(parents=True, exist_ok=True)
+            cached_path = cached_dir / f"{slug}.md"
+            cached_path.write_text(fetched.markdown, encoding="utf-8")
+
             entry = {
-                "name": name,
+                "name": slug,
                 "url": href,
+                "title": fetched.title,
                 "role": str(payload.get("role", "")).strip(),
+                "refresh_policy": refresh_policy,
+                "cached_path": str(cached_path.relative_to(paths.root)),
+                "fetched_at": now,
                 "added_at": now,
             }
             urls = manifest.setdefault("urls", [])
@@ -764,7 +814,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
             else:
                 urls.append(entry)
             save_context_manifest(paths, manifest)
-            return self._reply_json(HTTPStatus.OK, {"added": "url", "name": name})
+            return self._reply_json(HTTPStatus.OK, {"added": "url", "name": slug})
 
         return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown kind: {kind}"})
 
@@ -777,6 +827,56 @@ class QuorumHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK,
             {"repos": [s.to_dict() for s in states]},
         )
+
+    def _handle_url_refresh(self) -> None:
+        """Re-fetch a registered URL.
+
+        Body: { "name"?: "<slug>" } or { "url": "<href>" }.
+        """
+        from datetime import UTC, datetime
+
+        from ..core.context_bundle import load_context_manifest, save_context_manifest
+        from ..core.context_extract import UrlFetchError, fetch_url
+
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        slug = str(payload.get("name", "")).strip()
+        href = str(payload.get("url", "")).strip()
+        manifest = load_context_manifest(paths)
+        urls = manifest.get("urls") or []
+        if not isinstance(urls, list):
+            return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "no urls registered"})
+        target_entry: dict[str, Any] | None = None
+        for u in urls:
+            if not isinstance(u, dict):
+                continue
+            if slug and u.get("name") == slug:
+                target_entry = u
+                break
+            if href and u.get("url") == href:
+                target_entry = u
+                break
+        if target_entry is None:
+            return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "url not found"})
+        try:
+            fetched = fetch_url(str(target_entry.get("url", "")))
+        except UrlFetchError as exc:
+            return self._reply_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
+            )
+        cached_dir = paths.context_web / "cached"
+        cached_dir.mkdir(parents=True, exist_ok=True)
+        slug_name = str(target_entry.get("name", _slugify(fetched.title or fetched.url)))
+        cached_path = cached_dir / f"{slug_name}.md"
+        cached_path.write_text(fetched.markdown, encoding="utf-8")
+        target_entry["title"] = fetched.title
+        target_entry["fetched_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        target_entry["cached_path"] = str(cached_path.relative_to(paths.root))
+        save_context_manifest(paths, manifest)
+        self._reply_json(HTTPStatus.OK, {"refreshed": slug_name})
 
     def _handle_digest_queue(self) -> None:
         """Queue a background digestion run for one repo.
@@ -1230,6 +1330,16 @@ class QuorumHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------- #
 # Helpers (pure)
 # ---------------------------------------------------------------------- #
+
+
+def _slugify(value: str) -> str:
+    """Lowercase, hyphenate, strip non-alphanumeric. Bounded at 48 chars."""
+    import re
+
+    base = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+    if not base:
+        base = "url"
+    return base[:48]
 
 
 def _human_pending_by_deliberation(paths: WorkspacePaths) -> dict[str, int]:

@@ -63,6 +63,8 @@ export function DigestionDialog({
   const cliHandles = participants.filter((p) => p.transport === "cli");
   const pending = states.filter((s) => !s.digest_exists && s.status !== "running");
   const allDone = states.length > 0 && states.every((s) => s.digest_exists);
+  const docCount = states.filter((s) => s.kind === "doc").length;
+  const repoCount = states.filter((s) => s.kind === "repo").length;
 
   return (
     <Dialog
@@ -78,12 +80,14 @@ export function DigestionDialog({
         <div className="flex items-center justify-between">
           <div className="text-xs text-fg-tertiary">
             {states.length === 0 ? (
-              <span>No repos registered. Add one from the Context dialog.</span>
+              <span>Nothing needs digestion yet. Add repos or docs from the Context dialog.</span>
             ) : allDone ? (
-              <span className="text-accent-success">All repos digested.</span>
+              <span className="text-accent-success">All context digested.</span>
             ) : (
               <span>
-                {pending.length} repo{pending.length === 1 ? "" : "s"} need digesting.
+                {pending.length} of {states.length} pending — {repoCount} repo
+                {repoCount === 1 ? "" : "s"}, {docCount} large doc
+                {docCount === 1 ? "" : "s"}.
               </span>
             )}
           </div>
@@ -102,6 +106,9 @@ export function DigestionDialog({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{s.name}</span>
+                      <span className="rounded-full bg-recessed px-2 py-0.5 text-xs uppercase tracking-wider text-fg-tertiary">
+                        {s.kind}
+                      </span>
                       <StatusBadge state={s} />
                       <span className="text-xs text-fg-tertiary">
                         relevance: <span className="font-mono">{s.relevance}</span>
@@ -145,7 +152,7 @@ export function DigestionDialog({
                     onClick={async () => {
                       setBusy(s.name);
                       try {
-                        await queueDigest(s.name, choice);
+                        await queueDigest(s.name, choice, s.kind);
                         await refresh();
                       } catch (e) {
                         setError(e instanceof Error ? e.message : String(e));

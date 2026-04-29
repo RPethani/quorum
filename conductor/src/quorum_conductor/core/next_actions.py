@@ -141,21 +141,25 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
             )
         )
 
-    # 3b. Registered repos that haven't been digested yet block the
-    # loop's first real work — agents read digests, not raw source
+    # 3b. Context that hasn't been processed yet blocks the loop's first
+    # real work — agents read digests/cached fetches, not raw source
     # (design-doc §1.8). Surface as blocking until cleared.
-    pending_digests = _undigested_repo_count(paths)
-    if pending_digests > 0:
+    pending_digests, pending_urls = _undigested_counts(paths)
+    pending_total = pending_digests + pending_urls
+    if pending_total > 0:
+        bits: list[str] = []
+        if pending_digests:
+            bits.append(f"{pending_digests} digest{'s' if pending_digests != 1 else ''}")
+        if pending_urls:
+            bits.append(f"{pending_urls} URL fetch{'es' if pending_urls != 1 else ''}")
         actions.append(
             NextAction(
                 id="digest-context",
-                title=(
-                    f"{pending_digests} repo(s) need digesting before agents can use them"
-                ),
+                title="Context needs processing before agents can use it",
                 description=(
-                    "Open the Digestion panel to pick a digester model and kick off the "
-                    "summarisation. Runs in the background; the loop should stay paused on "
-                    "manifest-defining work until digests are reviewed."
+                    f"Pending: {', '.join(bits)}. Open the Digestion panel to "
+                    "pick a model and kick off summarisation; URLs auto-fetch on add but "
+                    "may need a manual refresh. Runs in the background."
                 ),
                 kind="dialog",
                 severity="blocking",
@@ -166,12 +170,12 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
 
     # 4. Deliberations exist + workspace is INITIALIZED + at least one
     # healthy agent → kick the loop. (Suppressed if any context still
-    # needs digestion above.)
+    # needs processing above.)
     if (
         summary.deliberation_count > 0
         and summary.state.state.value == "INITIALIZED"
         and healthy_count > 0
-        and pending_digests == 0
+        and pending_total == 0
     ):
         actions.append(
             NextAction(
@@ -285,27 +289,51 @@ def _count_human_pending(paths: WorkspacePaths) -> list[str]:
     ]
 
 
-def _undigested_repo_count(paths: WorkspacePaths) -> int:
+def _undigested_counts(paths: WorkspacePaths) -> tuple[int, int]:
+    """Count context entries that aren't yet usable.
+
+    Returns (digests_pending, urls_pending) where:
+
+      * digests_pending — repos missing digest.md OR docs flagged
+        `needs_digest=True` whose digested/<name>.md is missing.
+      * urls_pending — URL entries whose cached/<name>.md is missing
+        (failed fetch, or refresh needed).
+    """
     from .context_bundle import load_context_manifest
 
     try:
         manifest = load_context_manifest(paths)
     except Exception:
-        return 0
-    repos = manifest.get("repos") or []
-    if not isinstance(repos, list):
-        return 0
-    n = 0
-    for r in repos:
+        return 0, 0
+    digests = 0
+    urls_missing = 0
+    for r in manifest.get("repos") or []:
         if not isinstance(r, dict):
             continue
         name = str(r.get("name", "")).strip()
         if not name:
             continue
-        digest = paths.context_repos / name / "digest.md"
-        if not digest.is_file():
-            n += 1
-    return n
+        if not (paths.context_repos / name / "digest.md").is_file():
+            digests += 1
+    for d in manifest.get("docs") or []:
+        if not isinstance(d, dict):
+            continue
+        if not bool(d.get("needs_digest")):
+            continue
+        name = str(d.get("name", "")).strip()
+        if not name:
+            continue
+        if not (paths.context_docs / "digested" / f"{name}.md").is_file():
+            digests += 1
+    for u in manifest.get("urls") or []:
+        if not isinstance(u, dict):
+            continue
+        name = str(u.get("name", "")).strip()
+        if not name:
+            continue
+        if not (paths.context_web / "cached" / f"{name}.md").is_file():
+            urls_missing += 1
+    return digests, urls_missing
 
 
 def _has_context(paths: WorkspacePaths) -> bool:

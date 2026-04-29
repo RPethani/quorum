@@ -32,11 +32,16 @@ from .digestion import RepoSpec, digest_repo
 from .participants import Participant, parse_participants
 
 DigestionStatus = Literal["idle", "queued", "running", "ok", "failed"]
+DigestionKind = Literal["repo", "doc"]
 
 
 @dataclass
 class RepoDigestionState:
-    """One row of the digestion tracker."""
+    """One row of the digestion tracker.
+
+    Despite the legacy class name, this represents *any* digestible
+    context source (`kind` distinguishes repo vs. doc).
+    """
 
     name: str
     relevance: str
@@ -49,6 +54,7 @@ class RepoDigestionState:
     error: str | None = None
     digest_exists: bool = False
     last_digested_at: str | None = None
+    kind: DigestionKind = "repo"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -71,20 +77,27 @@ _STATE_BY_WORKSPACE: dict[Path, _StoreShape] = {}
 
 
 def list_states(paths: WorkspacePaths) -> list[RepoDigestionState]:
-    """Return one state row per registered repo, materialising defaults."""
+    """Return one state row per digestible context source.
+
+    Includes every registered repo (digestion is mandatory) and every
+    doc that the extractor flagged as `needs_digest=True` (large docs
+    over the token threshold).
+    """
     store = _ensure_store(paths)
     out: list[RepoDigestionState] = []
     config_extras = _safe_config_extras(paths)
     participants = _safe_participants(paths)
     digester_defaults = _digester_defaults(config_extras)
-    repos = _registered_repos(paths)
-    for repo in repos:
+
+    # Repos
+    for repo in _registered_repos(paths):
         name = str(repo.get("name", "")).strip()
         relevance = str(repo.get("relevance", "medium")).strip() or "medium"
         if not name:
             continue
+        key = ("repo", name)
         with _LOCK:
-            state = store.repos.get(name)
+            state = store.repos.get(_key(key))
             if state is None:
                 state = RepoDigestionState(
                     name=name,
@@ -92,15 +105,15 @@ def list_states(paths: WorkspacePaths) -> list[RepoDigestionState]:
                     proposed_digester=_propose_digester(
                         relevance, digester_defaults, participants
                     ),
+                    kind="repo",
                 )
-                store.repos[name] = state
+                store.repos[_key(key)] = state
             else:
-                # Refresh proposed digester in case participants changed.
                 state.relevance = relevance
                 state.proposed_digester = _propose_digester(
                     relevance, digester_defaults, participants
                 )
-        # Reflect on-disk truth: digest.md presence + meta.yaml date.
+                state.kind = "repo"
         digest_path = paths.context_repos / name / "digest.md"
         meta_path = paths.context_repos / name / "meta.yaml"
         state.digest_exists = digest_path.is_file()
@@ -111,12 +124,52 @@ def list_states(paths: WorkspacePaths) -> list[RepoDigestionState]:
         ):
             state.status = "ok"
         out.append(state)
+
+    # Docs that need digestion (large docs only, per design-doc §1.8).
+    for doc in _registered_docs(paths):
+        name = str(doc.get("name", "")).strip()
+        if not name or not bool(doc.get("needs_digest")):
+            continue
+        relevance = str(doc.get("relevance", "medium")).strip() or "medium"
+        key = ("doc", name)
+        with _LOCK:
+            state = store.repos.get(_key(key))
+            if state is None:
+                state = RepoDigestionState(
+                    name=name,
+                    relevance=relevance,
+                    proposed_digester=_propose_digester(
+                        relevance, digester_defaults, participants
+                    ),
+                    kind="doc",
+                )
+                store.repos[_key(key)] = state
+            else:
+                state.relevance = relevance
+                state.proposed_digester = _propose_digester(
+                    relevance, digester_defaults, participants
+                )
+                state.kind = "doc"
+        digested_path = paths.context_docs / "digested" / f"{name}.md"
+        state.digest_exists = digested_path.is_file()
+        state.last_digested_at = None  # docs don't carry a meta.yaml today.
+        if (
+            state.digest_exists
+            and state.status not in {"running", "queued", "failed"}
+        ):
+            state.status = "ok"
+        out.append(state)
+
     _persist(paths, store)
     return out
 
 
 def queue_digest(
-    paths: WorkspacePaths, name: str, *, digester_handle: str | None = None
+    paths: WorkspacePaths,
+    name: str,
+    *,
+    digester_handle: str | None = None,
+    kind: DigestionKind = "repo",
 ) -> RepoDigestionState:
     """Queue a digestion run for `name`. Spawns a background thread.
 
@@ -125,11 +178,18 @@ def queue_digest(
     already running is a no-op.
     """
     store = _ensure_store(paths)
-    repos = _registered_repos(paths)
-    repo = next((r for r in repos if str(r.get("name")) == name), None)
-    if repo is None:
-        raise ValueError(f"no repo registered with name {name!r}")
-    relevance = str(repo.get("relevance", "medium")).strip() or "medium"
+    record: dict[str, object] | None
+    if kind == "repo":
+        record = next((r for r in _registered_repos(paths) if r.get("name") == name), None)
+        if record is None:
+            raise ValueError(f"no repo registered with name {name!r}")
+    elif kind == "doc":
+        record = next((d for d in _registered_docs(paths) if d.get("name") == name), None)
+        if record is None:
+            raise ValueError(f"no doc registered with name {name!r}")
+    else:
+        raise ValueError(f"unknown digestion kind {kind!r}")
+    relevance = str(record.get("relevance", "medium")).strip() or "medium"
 
     participants = _safe_participants(paths)
     by_handle: dict[str, Participant] = {p.handle: p for p in participants}
@@ -144,11 +204,13 @@ def queue_digest(
             "No usable cli-transport agent. Add an agent first, then retry."
         )
 
+    store_key = _key((kind, name))
     with _LOCK:
-        state = store.repos.get(name) or RepoDigestionState(
+        state = store.repos.get(store_key) or RepoDigestionState(
             name=name,
             relevance=relevance,
             proposed_digester=chosen,
+            kind=kind,
         )
         if state.status in {"queued", "running"}:
             return state
@@ -159,15 +221,17 @@ def queue_digest(
         state.completed_at = None
         state.duration_s = None
         state.error = None
-        store.repos[name] = state
+        state.kind = kind
+        store.repos[store_key] = state
     _persist(paths, store)
 
     # TODO: emit digester_chosen event for audit trail (design-doc §1.8).
     # Pending a generic Event subclass; the chosen handle is recorded in
     # runtime/services/digestions.json regardless.
 
+    target_fn = _run_digestion if kind == "repo" else _run_doc_digestion
     threading.Thread(
-        target=_run_digestion,
+        target=target_fn,
         args=(paths, name, chosen, by_handle.get(chosen)),
         daemon=True,
     ).start()
@@ -188,9 +252,10 @@ def _run_digestion(
     store = _ensure_store(paths)
     repos = _registered_repos(paths)
     repo = next((r for r in repos if str(r.get("name")) == name), None)
+    key = _key(("repo", name))
     if repo is None or digester is None:
         with _LOCK:
-            state = store.repos.get(name)
+            state = store.repos.get(key)
             if state is not None:
                 state.status = "failed"
                 state.error = "repo or digester not found"
@@ -214,8 +279,13 @@ def _run_digestion(
 
     with _LOCK:
         state = store.repos.setdefault(
-            name,
-            RepoDigestionState(name=name, relevance=relevance, proposed_digester=digester_handle),
+            key,
+            RepoDigestionState(
+                name=name,
+                relevance=relevance,
+                proposed_digester=digester_handle,
+                kind="repo",
+            ),
         )
         state.status = "running"
         state.started_at = _now_iso()
@@ -240,6 +310,112 @@ def _run_digestion(
     _persist(paths, store)
 
 
+def _run_doc_digestion(
+    paths: WorkspacePaths,
+    name: str,
+    digester_handle: str,
+    digester: Participant | None,
+) -> None:
+    """Run an LLM digest on a large document.
+
+    Reads the extracted markdown from `context/docs/raw/<name>.md`,
+    pipes it to the chosen digester CLI with a digest prompt, and
+    writes the result to `context/docs/digested/<name>.md`.
+    """
+    import shlex
+    import subprocess
+    import time
+
+    store = _ensure_store(paths)
+    key = _key(("doc", name))
+    raw_path = paths.context_docs / "raw" / f"{name}.md"
+    if digester is None or not raw_path.is_file():
+        with _LOCK:
+            state = store.repos.get(key)
+            if state is not None:
+                state.status = "failed"
+                state.error = "doc or digester not found"
+        _persist(paths, store)
+        return
+
+    body = raw_path.read_text(encoding="utf-8")
+    prompt = (
+        "You are summarising a user-supplied document for downstream agents that won't "
+        "have room for the full text. Produce a digest that captures: scope and intent, "
+        "key claims/facts, structure of the document, and anything an agent would need "
+        "to know to act on it without re-reading the source.\n\n"
+        "Length budget: ≤2000 words. Use Markdown headings.\n\n"
+        "--- DOCUMENT BEGIN ---\n"
+        f"{body}\n"
+        "--- DOCUMENT END ---\n"
+    )
+
+    with _LOCK:
+        state = store.repos.setdefault(
+            key,
+            RepoDigestionState(
+                name=name,
+                relevance="medium",
+                proposed_digester=digester_handle,
+                kind="doc",
+            ),
+        )
+        state.status = "running"
+        state.started_at = _now_iso()
+        state.chosen_digester = digester_handle
+    _persist(paths, store)
+
+    target_dir = paths.context_docs / "digested"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_file = target_dir / f"{name}.md"
+
+    started = time.time()
+    try:
+        proc = subprocess.run(
+            shlex.split(digester.cli_command),
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=600.0,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        with _LOCK:
+            state.status = "failed"
+            state.completed_at = _now_iso()
+            state.error = "digestion timed out (10 min)"
+        _persist(paths, store)
+        return
+    except Exception as exc:
+        with _LOCK:
+            state.status = "failed"
+            state.completed_at = _now_iso()
+            state.error = f"{type(exc).__name__}: {exc}"
+        _persist(paths, store)
+        return
+
+    duration = time.time() - started
+    if proc.returncode != 0 or not (proc.stdout or "").strip():
+        with _LOCK:
+            state.status = "failed"
+            state.completed_at = _now_iso()
+            state.duration_s = duration
+            state.error = (
+                proc.stderr.strip()
+                or f"digester exited {proc.returncode} with no output"
+            )
+        _persist(paths, store)
+        return
+
+    target_file.write_text(proc.stdout.strip() + "\n", encoding="utf-8")
+    with _LOCK:
+        state.status = "ok"
+        state.completed_at = _now_iso()
+        state.duration_s = duration
+        state.error = None
+    _persist(paths, store)
+
+
 # ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #
@@ -251,6 +427,19 @@ def _registered_repos(paths: WorkspacePaths) -> list[dict[str, object]]:
     manifest = load_context_manifest(paths)
     repos = manifest.get("repos") or []
     return [r for r in repos if isinstance(r, dict)]
+
+
+def _registered_docs(paths: WorkspacePaths) -> list[dict[str, object]]:
+    from .context_bundle import load_context_manifest
+
+    manifest = load_context_manifest(paths)
+    docs = manifest.get("docs") or []
+    return [d for d in docs if isinstance(d, dict)]
+
+
+def _key(pair: tuple[str, str]) -> str:
+    """Stable key for the in-memory tracker (kind:name)."""
+    return f"{pair[0]}:{pair[1]}"
 
 
 def _safe_config_extras(paths: WorkspacePaths) -> dict[str, object]:

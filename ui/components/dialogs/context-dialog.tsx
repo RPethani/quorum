@@ -13,9 +13,10 @@ import {
   addContextUrl,
   getContextManifest,
   getRawFile,
+  refreshUrl,
   saveRawFile,
 } from "@/lib/api/conductor";
-import { CheckCircle2, FolderOpen, Loader2, Save } from "lucide-react";
+import { CheckCircle2, FolderOpen, Loader2, RefreshCw, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 /**
@@ -68,7 +69,10 @@ export function ContextDialog({
         </TabsContent>
 
         <TabsContent value="docs">
-          <ItemList items={manifest?.docs ?? []} fields={["name", "source_path"]} />
+          <ItemList
+            items={manifest?.docs ?? []}
+            fields={["name", "source_path", "tokens_estimated", "needs_digest"]}
+          />
           <AddDocForm onAdded={refresh} />
         </TabsContent>
 
@@ -78,7 +82,7 @@ export function ContextDialog({
         </TabsContent>
 
         <TabsContent value="urls">
-          <ItemList items={manifest?.urls ?? []} fields={["name", "url", "role"]} />
+          <UrlList items={manifest?.urls ?? []} onRefreshed={refresh} />
           <AddUrlForm onAdded={refresh} />
         </TabsContent>
       </Tabs>
@@ -186,6 +190,90 @@ function ItemList({
         </li>
       ))}
     </ul>
+  );
+}
+
+// ---------------------------------------------------------------------- //
+// URL list — adds per-row refresh button + fetch state
+// ---------------------------------------------------------------------- //
+
+function UrlList({
+  items,
+  onRefreshed,
+}: {
+  items: Array<Record<string, unknown>>;
+  onRefreshed: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (!items.length) {
+    return (
+      <p className="px-1 py-6 text-sm text-fg-tertiary">
+        No URLs registered yet. Add one below — the conductor fetches and converts to Markdown
+        automatically.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {error ? <p className="text-sm text-accent-danger">{error}</p> : null}
+      <ul className="divide-y divide-border-default rounded-md border border-border-default bg-recessed">
+        {items.map((u, i) => {
+          const name = String(u.name ?? "");
+          const cached = !!u.cached_path;
+          return (
+            <li key={`${i}-${name}`} className="flex items-start justify-between gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium truncate">{String(u.title || u.name || u.url)}</div>
+                <div className="mt-0.5 text-xs text-fg-tertiary truncate">
+                  <a
+                    href={String(u.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono hover:underline"
+                  >
+                    {String(u.url)}
+                  </a>
+                </div>
+                <div className="mt-0.5 text-xs">
+                  {cached ? (
+                    <span className="text-accent-success">
+                      cached · fetched {String(u.fetched_at ?? "?")}
+                    </span>
+                  ) : (
+                    <span className="text-accent-warning">no cache yet</span>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy === name}
+                onClick={async () => {
+                  setBusy(name);
+                  setError(null);
+                  try {
+                    await refreshUrl(name);
+                    onRefreshed();
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+              >
+                {busy === name ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={12} />
+                )}
+                Refresh
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

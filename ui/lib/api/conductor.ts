@@ -335,6 +335,7 @@ export type DigestionState = {
   error: string | null;
   digest_exists: boolean;
   last_digested_at: string | null;
+  kind: "repo" | "doc";
 };
 
 export async function getDigestions(): Promise<DigestionState[]> {
@@ -342,11 +343,15 @@ export async function getDigestions(): Promise<DigestionState[]> {
   return body.repos;
 }
 
-export async function queueDigest(name: string, digester?: string): Promise<DigestionState> {
+export async function queueDigest(
+  name: string,
+  digester?: string,
+  kind: "repo" | "doc" = "repo",
+): Promise<DigestionState> {
   const res = await fetchOrFriendlyError(`${base()}/api/context/digest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, ...(digester ? { digester } : {}) }),
+    body: JSON.stringify({ name, kind, ...(digester ? { digester } : {}) }),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -354,6 +359,20 @@ export async function queueDigest(name: string, digester?: string): Promise<Dige
     throw new Error(body.error || `Queue digest failed: ${res.status}`);
   }
   return (await res.json()) as DigestionState;
+}
+
+export async function refreshUrl(name: string): Promise<{ refreshed: string }> {
+  const res = await fetchOrFriendlyError(`${base()}/api/context/urls/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Refresh failed: ${res.status}`);
+  }
+  return (await res.json()) as { refreshed: string };
 }
 
 export type FsEntry = { name: string; path: string; is_dir: boolean };
