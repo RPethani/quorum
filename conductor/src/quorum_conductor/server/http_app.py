@@ -38,6 +38,21 @@ from ..core import (
     plan,
 )
 from ..core.context_bundle import load_context_manifest
+from ..core.permissions import (
+    PermissionStakes,
+)
+from ..core.permissions import (
+    approve as approve_permission,
+)
+from ..core.permissions import (
+    create_request as create_permission_request,
+)
+from ..core.permissions import (
+    deny as deny_permission,
+)
+from ..core.permissions import (
+    list_requests as list_permission_requests,
+)
 from ..events import EventLogger, RoutingDecisionEvent, read_events
 from ..paths import WorkspacePaths
 from ..transport.runner import run_items_sync
@@ -145,6 +160,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_raw_listing()
             if path.startswith("/api/raw/"):
                 return self._reply_raw_file(path[len("/api/raw/") :])
+            if path == "/api/permissions":
+                return self._reply_permissions_list()
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -162,6 +179,14 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_append_move()
             if url.path.startswith("/api/raw/"):
                 return self._handle_raw_write(url.path[len("/api/raw/") :])
+            if url.path == "/api/permissions":
+                return self._handle_permissions_create()
+            if url.path.startswith("/api/permissions/") and url.path.endswith("/approve"):
+                rid = url.path[len("/api/permissions/") : -len("/approve")]
+                return self._handle_permission_decide(rid, approve=True)
+            if url.path.startswith("/api/permissions/") and url.path.endswith("/deny"):
+                rid = url.path[len("/api/permissions/") : -len("/deny")]
+                return self._handle_permission_decide(rid, approve=False)
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -511,6 +536,52 @@ class QuorumHandler(BaseHTTPRequestHandler):
         self._reply_json(
             HTTPStatus.OK, {"path": rel, "size_bytes": len(content.encode("utf-8"))}
         )
+
+    def _reply_permissions_list(self) -> None:
+        paths = self.server.paths
+        rows = [r.to_dict() for r in list_permission_requests(paths)]
+        self._reply_json(HTTPStatus.OK, {"requests": rows})
+
+    def _handle_permissions_create(self) -> None:
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        try:
+            stakes = PermissionStakes(str(payload.get("stakes", "tactical")))
+        except ValueError:
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "stakes must be one of trivial/tactical/strategic/irreversible"},
+            )
+        req = create_permission_request(
+            paths,
+            handle=str(payload.get("handle", "")),
+            deliberation_id=str(payload.get("deliberation_id", "")),
+            tool=str(payload.get("tool", "")),
+            operation=str(payload.get("operation", "")),
+            rationale=str(payload.get("rationale", "")),
+            stakes=stakes,
+        )
+        self._reply_json(HTTPStatus.OK, req.to_dict())
+
+    def _handle_permission_decide(self, request_id: str, *, approve: bool) -> None:
+        paths = self.server.paths
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            payload = self._read_json_body() if length > 0 else {}
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        decided_by = str(payload.get("decided_by", "@human"))
+        reason = payload.get("reason") or None
+        fn = approve_permission if approve else deny_permission
+        result = fn(paths, request_id, decided_by=decided_by, reason=reason)
+        if result is None:
+            return self._reply_json(
+                HTTPStatus.NOT_FOUND, {"error": f"no pending permission {request_id!r}"}
+            )
+        self._reply_json(HTTPStatus.OK, result.to_dict())
 
     def _handle_append_move(self) -> None:
         from datetime import UTC, datetime
