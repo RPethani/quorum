@@ -113,15 +113,27 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
             )
         )
 
-    # 3. Pending human moves? Prompt to act on them in the workspace.
-    if summary.inbox_pending_count > 0:
+    # 3. Pending HUMAN moves? Prompt to act on them in the workspace.
+    # `summary.inbox_pending_count` counts all inbox files with content
+    # (one per participant). For the human-facing action we only care
+    # about the rows tagged at the human's handle.
+    pending_for_human = _count_human_pending(paths)
+    if pending_for_human:
+        delib_ids = sorted({line.split("#")[1].split(" ")[0] for line in pending_for_human})
+        ids_summary = ", ".join(f"#{d}" for d in delib_ids[:3]) + (
+            "…" if len(delib_ids) > 3 else ""
+        )
         actions.append(
             NextAction(
                 id="answer-inbox",
-                title=f"You have {summary.inbox_pending_count} pending move(s) waiting on you",
+                title=(
+                    f"You have {len(pending_for_human)} pending "
+                    f"move(s) on {ids_summary}"
+                ),
                 description=(
-                    "Open the deliberation tagged in your inbox and use 'Compose move' to "
-                    "respond. The loop pauses on these until you author the next move."
+                    "Click the deliberation in the left panel, read the latest "
+                    "PROPOSAL/CRITIQUE, then click 'Compose move' to respond. The "
+                    "loop pauses here until you author the next move."
                 ),
                 kind="info",
                 severity="blocking",
@@ -215,6 +227,37 @@ def _cli_health_counts(paths: WorkspacePaths) -> tuple[int, int, list[str]]:
         else:
             unhealthy.append(h.handle)
     return cli_count, healthy, unhealthy
+
+
+def _count_human_pending(paths: WorkspacePaths) -> list[str]:
+    """Return the raw pending lines from the human's inbox.
+
+    Identifies the human as the first manual-transport participant.
+    Each line is expected to look like
+        `- pending: PROPOSAL in #0001 by @claude-opus (...)`
+    so callers can also extract deliberation IDs from the same list.
+    """
+    from .participants import parse_participants
+
+    human: str | None = None
+    if paths.participants.is_file():
+        try:
+            for p in parse_participants(paths.participants):
+                if p.transport == "manual":
+                    human = p.handle
+                    break
+        except Exception:
+            return []
+    if human is None:
+        return []
+    inbox_file = paths.inbox / f"{human}.md"
+    if not inbox_file.is_file():
+        return []
+    return [
+        line.strip()
+        for line in inbox_file.read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("- pending:")
+    ]
 
 
 def _has_context(paths: WorkspacePaths) -> bool:

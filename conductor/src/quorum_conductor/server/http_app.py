@@ -260,6 +260,10 @@ class QuorumHandler(BaseHTTPRequestHandler):
     def _reply_deliberations(self) -> None:
         paths = self.server.paths
         rows: list[dict[str, Any]] = []
+        # Map deliberation_id -> count of pending lines in the human's
+        # inbox so the UI can flag which deliberations are waiting on
+        # the user.
+        pending_for_human = _human_pending_by_deliberation(paths)
         if paths.deliberations.is_dir():
             for path in sorted(paths.deliberations.glob("*.md")):
                 try:
@@ -273,6 +277,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
                         "status": meta.status,
                         "tags": meta.tags,
                         "filename": path.name,
+                        "human_pending": pending_for_human.get(meta.id, 0),
                     }
                 )
         self._reply_json(HTTPStatus.OK, {"deliberations": rows})
@@ -988,6 +993,40 @@ class QuorumHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------- #
 # Helpers (pure)
 # ---------------------------------------------------------------------- #
+
+
+def _human_pending_by_deliberation(paths: WorkspacePaths) -> dict[str, int]:
+    """Return {deliberation_id: pending_count} from the human's inbox.
+
+    Looks at the first manual-transport participant's `<inbox>.md`
+    and parses lines of the form `- pending: <MOVE> in #<id> ...`.
+    """
+    import re
+
+    from ..core.participants import parse_participants
+
+    if not paths.participants.is_file():
+        return {}
+    human: str | None = None
+    try:
+        for p in parse_participants(paths.participants):
+            if p.transport == "manual":
+                human = p.handle
+                break
+    except Exception:
+        return {}
+    if human is None:
+        return {}
+    inbox_file = paths.inbox / f"{human}.md"
+    if not inbox_file.is_file():
+        return {}
+    counts: dict[str, int] = {}
+    rx = re.compile(r"^- pending:\s+\S+\s+in\s+#(\S+)")
+    for line in inbox_file.read_text(encoding="utf-8").splitlines():
+        m = rx.match(line.strip())
+        if m:
+            counts[m.group(1)] = counts.get(m.group(1), 0) + 1
+    return counts
 
 
 def _live_health_dict(h: Any) -> dict[str, Any] | None:

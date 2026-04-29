@@ -39,7 +39,12 @@ export function DeliberationsList({
           >
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-xs text-fg-tertiary">#{d.id}</span>
-              <Badge variant={badgeForState(d.status)}>{d.status}</Badge>
+              <div className="flex items-center gap-1.5">
+                {d.human_pending > 0 ? (
+                  <Badge variant="warning">{d.human_pending} for you</Badge>
+                ) : null}
+                <Badge variant={badgeForState(d.status)}>{d.status}</Badge>
+              </div>
             </div>
             <p className="mt-1 text-sm font-medium leading-snug">{d.title || "(untitled)"}</p>
             {d.tags.length ? (

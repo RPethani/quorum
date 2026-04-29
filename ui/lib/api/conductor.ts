@@ -52,6 +52,7 @@ export type DeliberationListItem = {
   status: string;
   tags: string[];
   filename: string;
+  human_pending: number;
 };
 
 export type DeliberationDetail = DeliberationListItem & {
