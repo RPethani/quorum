@@ -108,7 +108,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 7 — UI shell (the real one) ⬜
+## Phase 7 — UI shell (the real one) ✅
 
 **Goal.** Three-pane layout (§9.5), workspace setup wizard (§9.8 Tier 1), move card primitives, manifest progress view, theme provider — all on the design system from Phase 2.
 
