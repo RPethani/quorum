@@ -140,7 +140,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 11 — Permission broker (opt-in feature) ⬜
+## Phase 11 — Permission broker (opt-in feature) 🟡 (data plane + UI shipped; live proxy deferred — ADR-003)
 
 **Goal.** §10.6 in full: stdin/stdout pipe management, prompt detection per CLI, response routing, BLOCKED_ON_PERMISSION state, permission request cards, auto-approval policy, capability-aware routing.
 
