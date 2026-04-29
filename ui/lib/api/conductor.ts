@@ -323,6 +323,24 @@ export async function addContextUrl(payload: {
   return contextPost("urls", payload);
 }
 
+export type FsEntry = { name: string; path: string; is_dir: boolean };
+export type FsListing = {
+  path: string;
+  parent: string | null;
+  home: string;
+  entries: FsEntry[];
+};
+
+export async function listFs(
+  path: string | null,
+  mode: "dirs" | "files" = "dirs",
+): Promise<FsListing> {
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  params.set("mode", mode);
+  return getJSON<FsListing>(`/api/fs/list?${params.toString()}`);
+}
+
 async function contextPost(
   kind: "repos" | "docs" | "notes" | "urls",
   payload: Record<string, unknown>,

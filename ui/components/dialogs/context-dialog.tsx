@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogFooter } from "@/components/ui/dialog";
+import { FilePicker } from "@/components/ui/file-picker";
 import { Input, Textarea } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -14,7 +15,7 @@ import {
   getRawFile,
   saveRawFile,
 } from "@/lib/api/conductor";
-import { Loader2, Save } from "lucide-react";
+import { CheckCircle2, FolderOpen, Loader2, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 /**
@@ -198,15 +199,29 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
   const [relevance, setRelevance] = useState("medium");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [lastAdded, setLastAdded] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   return (
     <AddBox>
-      <Field label="Repo path" hint="Absolute path to a local directory.">
-        <Input
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          placeholder="/Users/me/code/myrepo"
-          className="font-mono"
-        />
+      <Field label="Repo path" hint="Browse to pick a folder, or paste an absolute path.">
+        <div className="flex items-center gap-2">
+          <Input
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder="/Users/me/code/myrepo"
+            className="font-mono"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPickerOpen(true)}
+            title="Pick a folder"
+          >
+            <FolderOpen size={14} />
+            Browse
+          </Button>
+        </div>
       </Field>
       <Field label="Name" hint="Optional. Defaults to the directory name.">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="myrepo" />
@@ -223,6 +238,7 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
         </select>
       </Field>
       {err ? <p className="text-sm text-accent-danger">{err}</p> : null}
+      <FormStatus lastAdded={lastAdded} kind="repo" />
       <DialogFooter>
         <Button
           variant="primary"
@@ -231,7 +247,12 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
             setBusy(true);
             setErr(null);
             try {
-              await addContextRepo({ path: path.trim(), name: name.trim(), relevance });
+              const res = await addContextRepo({
+                path: path.trim(),
+                name: name.trim(),
+                relevance,
+              });
+              setLastAdded(res.name);
               setPath("");
               setName("");
               onAdded();
@@ -243,9 +264,19 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
           }}
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : null}
-          Register repo
+          Add repo
         </Button>
       </DialogFooter>
+      <FilePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        mode="dirs"
+        title="Pick a repository folder"
+        onPick={(p) => {
+          setPath(p);
+          setPickerOpen(false);
+        }}
+      />
     </AddBox>
   );
 }
@@ -255,23 +286,38 @@ function AddDocForm({ onAdded }: { onAdded: () => void }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [lastAdded, setLastAdded] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   return (
     <AddBox>
       <Field
         label="File path"
-        hint="Absolute path to a local file. Will be copied into context/docs/raw/."
+        hint="Browse to pick a file, or paste an absolute path. The file is copied into context/docs/raw/."
       >
-        <Input
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          placeholder="/Users/me/specs/feature.md"
-          className="font-mono"
-        />
+        <div className="flex items-center gap-2">
+          <Input
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder="/Users/me/specs/feature.md"
+            className="font-mono"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setPickerOpen(true)}
+            title="Pick a file"
+          >
+            <FolderOpen size={14} />
+            Browse
+          </Button>
+        </div>
       </Field>
       <Field label="Name" hint="Optional. Defaults to the file stem.">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="feature" />
       </Field>
       {err ? <p className="text-sm text-accent-danger">{err}</p> : null}
+      <FormStatus lastAdded={lastAdded} kind="doc" />
       <DialogFooter>
         <Button
           variant="primary"
@@ -280,7 +326,8 @@ function AddDocForm({ onAdded }: { onAdded: () => void }) {
             setBusy(true);
             setErr(null);
             try {
-              await addContextDoc({ path: path.trim(), name: name.trim() });
+              const res = await addContextDoc({ path: path.trim(), name: name.trim() });
+              setLastAdded(res.name);
               setPath("");
               setName("");
               onAdded();
@@ -295,6 +342,16 @@ function AddDocForm({ onAdded }: { onAdded: () => void }) {
           Add doc
         </Button>
       </DialogFooter>
+      <FilePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        mode="files"
+        title="Pick a document"
+        onPick={(p) => {
+          setPath(p);
+          setPickerOpen(false);
+        }}
+      />
     </AddBox>
   );
 }
@@ -304,6 +361,7 @@ function AddNoteForm({ onAdded }: { onAdded: () => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [lastAdded, setLastAdded] = useState<string | null>(null);
   return (
     <AddBox>
       <Field label="Slug" hint="Short kebab-case name; used as filename.">
@@ -323,6 +381,7 @@ function AddNoteForm({ onAdded }: { onAdded: () => void }) {
         />
       </Field>
       {err ? <p className="text-sm text-accent-danger">{err}</p> : null}
+      <FormStatus lastAdded={lastAdded} kind="note" />
       <DialogFooter>
         <Button
           variant="primary"
@@ -331,7 +390,8 @@ function AddNoteForm({ onAdded }: { onAdded: () => void }) {
             setBusy(true);
             setErr(null);
             try {
-              await addContextNote({ name: name.trim(), text });
+              const res = await addContextNote({ name: name.trim(), text });
+              setLastAdded(res.name);
               setName("");
               setText("");
               onAdded();
@@ -356,6 +416,7 @@ function AddUrlForm({ onAdded }: { onAdded: () => void }) {
   const [role, setRole] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [lastAdded, setLastAdded] = useState<string | null>(null);
   return (
     <AddBox>
       <Field label="URL" hint="External link the agents can read about.">
@@ -377,6 +438,7 @@ function AddUrlForm({ onAdded }: { onAdded: () => void }) {
         />
       </Field>
       {err ? <p className="text-sm text-accent-danger">{err}</p> : null}
+      <FormStatus lastAdded={lastAdded} kind="url" />
       <DialogFooter>
         <Button
           variant="primary"
@@ -385,7 +447,12 @@ function AddUrlForm({ onAdded }: { onAdded: () => void }) {
             setBusy(true);
             setErr(null);
             try {
-              await addContextUrl({ url: href.trim(), name: name.trim(), role: role.trim() });
+              const res = await addContextUrl({
+                url: href.trim(),
+                name: name.trim(),
+                role: role.trim(),
+              });
+              setLastAdded(res.name);
               setHref("");
               setName("");
               setRole("");
@@ -414,6 +481,19 @@ function AddBox({ children }: { children: React.ReactNode }) {
     <div className="mt-4 rounded-md border border-border-default bg-recessed/50 p-4 space-y-3">
       <p className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">Add new</p>
       {children}
+    </div>
+  );
+}
+
+function FormStatus({ lastAdded, kind }: { lastAdded: string | null; kind: string }) {
+  if (!lastAdded) return null;
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-accent-success/40 bg-accent-success-weak px-3 py-1.5 text-xs text-accent-success">
+      <CheckCircle2 size={12} />
+      <span>
+        Added {kind} <span className="font-mono">{lastAdded}</span>. The form is cleared — add
+        another, or close the dialog.
+      </span>
     </div>
   );
 }
