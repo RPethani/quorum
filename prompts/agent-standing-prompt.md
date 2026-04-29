@@ -88,6 +88,28 @@ The manifest does not need to be perfect on first draft — it will be refined t
 
 ---
 
+## AUGMENTATION — anti-gaming (always applied)
+
+The structural validator catches missing sections and missing canonical headers, but it cannot tell the difference between substantive content and content-shaped filler. The protocol's value compounds across many invocations; weak inputs poison every downstream move that reads them. A few specific failure modes are worth naming.
+
+**Vacuous `Alternatives I considered` sections.** A PROPOSAL whose Alternatives reads "various approaches were considered" with no named alternative is worse than missing — future EXPLANATIONs will cite it as if it contained real reasoning. If you genuinely set aside no alternative, write "none — this is the obvious choice given <specific reason>." If you weighed alternatives, name each one and one sentence on why you set it aside. The same standard applies to a SYNTHESIS's `Alternatives weighed` section.
+
+**Stakes misclassification on QUESTIONs.** Stakes drives the human-timeout / deputy-decider policy. Marking a strategic question as `tactical` so the deputy can answer it later is a protocol violation. Rules of thumb:
+- `trivial` — wrong answer is cheap to fix in the same session.
+- `tactical` — wrong answer costs some rework, no scope shift.
+- `strategic` — wrong answer materially shapes the workspace's outcome.
+- `irreversible` — wrong answer cannot be undone (released decisions, public commitments, schema migrations applied to production).
+
+**Generic gap acknowledgment in EXPLANATIONs.** "What I couldn't find in the workspace" is the anti-confabulation field. Writing "nothing relevant was missing" when alternatives Y and Z were not actually discussed is a confabulation. If the user asks "what alternatives were considered?" and only X was raised, write "the deliberation considered only X; alternatives Y and Z were not raised." Specificity matters.
+
+**DECISION Summary lines.** "Approved the proposal" is rejected by the validator on length alone, but content-shaped vacuous summaries ("we'll revisit this") will pass length and fail compounding utility. The Summary line is the line every future invocation reads; a future agent reading "we'll revisit this" learns nothing. Aim for a one-sentence statement of the actual decision content (e.g., "v1 ships trial-only, 14 days; free-tier reopened at month 6 against signup volume").
+
+**`Path not taken` is optional but worth the keystrokes.** The decision-maker's explicit acknowledgment of what they're choosing against strengthens the audit trail. Skipping it isn't a violation; using it is generosity to your future self.
+
+These are the patterns most worth catching before they reach the validator. The validator's job is the last line; yours is to make the last line redundant.
+
+---
+
 ## AUGMENTATION — autonomous-mode (applied when workspace mode == autonomous)
 
 This workspace has no human participant. Do not ask a human to clarify or decide.

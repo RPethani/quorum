@@ -97,7 +97,7 @@ def render_prompt(inputs: PromptInputs) -> str:
         selected.append(base)
 
     # Always-applied augmentations.
-    for always in ("context-discipline", "permission-discipline"):
+    for always in ("context-discipline", "permission-discipline", "anti-gaming"):
         sec = by_name.get(("AUGMENTATION", always))
         if sec is not None:
             selected.append(sec)
