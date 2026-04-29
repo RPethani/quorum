@@ -158,6 +158,12 @@ export async function step(): Promise<StepResponse> {
 
 // ----- Phase-7 endpoints -------------------------------------------------- //
 
+export type LiveHealth = {
+  on_path: boolean | null;
+  note: string;
+  transport: string;
+};
+
 export type ParticipantRow = {
   handle: string;
   display_name: string;
@@ -170,6 +176,7 @@ export type ParticipantRow = {
   account_label: string;
   health: string;
   inherits_fitness_from: string | null;
+  live_health: LiveHealth | null;
 };
 
 export type ManifestProgress = {

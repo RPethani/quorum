@@ -76,7 +76,7 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
         )
 
     # 2. No CLI participants registered → loop can't make autonomous progress.
-    cli_count = _count_cli_participants(paths)
+    cli_count, healthy_count, unhealthy = _cli_health_counts(paths)
     if cli_count == 0:
         actions.append(
             NextAction(
@@ -90,6 +90,25 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
                 kind="dialog",
                 severity="blocking",
                 payload="add-agent",
+                primary=not actions,
+            )
+        )
+    elif healthy_count == 0:
+        # Have rows in participants.md, but none of their CLIs are on PATH.
+        # The loop will fail on the first invocation; block until verified.
+        bad_summary = ", ".join(unhealthy[:3]) + ("…" if len(unhealthy) > 3 else "")
+        actions.append(
+            NextAction(
+                id="verify-agents",
+                title="Your agent(s) aren't reachable",
+                description=(
+                    f"Quorum tried to verify {bad_summary} but the configured CLI "
+                    "isn't on PATH. Open Settings → Participants to fix the cli_command "
+                    "field, install the tool, or re-add the agent with the correct command."
+                ),
+                kind="dialog",
+                severity="blocking",
+                payload="settings",
                 primary=not actions,
             )
         )
@@ -110,8 +129,13 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
             )
         )
 
-    # 4. Deliberations exist + workspace is INITIALIZED → kick the loop.
-    if summary.deliberation_count > 0 and summary.state.state.value == "INITIALIZED":
+    # 4. Deliberations exist + workspace is INITIALIZED + at least one
+    # healthy agent → kick the loop.
+    if (
+        summary.deliberation_count > 0
+        and summary.state.state.value == "INITIALIZED"
+        and healthy_count > 0
+    ):
         actions.append(
             NextAction(
                 id="start-loop",
@@ -166,15 +190,31 @@ def _file_empty(path: object) -> bool:
 
 
 def _count_cli_participants(paths: WorkspacePaths) -> int:
-    from .participants import parse_participants
+    """Legacy helper retained for callers outside this module."""
+    cli, _healthy, _bad = _cli_health_counts(paths)
+    return cli
 
-    if not paths.participants.is_file():
-        return 0
-    try:
-        rows = parse_participants(paths.participants)
-    except Exception:
-        return 0
-    return sum(1 for r in rows if r.transport == "cli")
+
+def _cli_health_counts(paths: WorkspacePaths) -> tuple[int, int, list[str]]:
+    """Return (cli_count, healthy_count, unhealthy_handles).
+
+    Calls into the doctor's PATH probe — fast (just `shutil.which`)
+    so it's fine to do on every next-actions request.
+    """
+    from ..transport.doctor import doctor_check
+
+    cli_count = 0
+    healthy = 0
+    unhealthy: list[str] = []
+    for h in doctor_check(paths):
+        if h.transport != "cli":
+            continue
+        cli_count += 1
+        if h.on_path is True:
+            healthy += 1
+        else:
+            unhealthy.append(h.handle)
+    return cli_count, healthy, unhealthy
 
 
 def _has_context(paths: WorkspacePaths) -> bool:

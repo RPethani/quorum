@@ -61,6 +61,7 @@ from ..core.permissions import (
 )
 from ..events import EventLogger, RoutingDecisionEvent, read_events
 from ..paths import WorkspacePaths
+from ..transport.doctor import doctor_check
 from ..transport.runner import run_items_sync
 from ..workspace import (
     bootstrap_seed_deliberation,
@@ -315,6 +316,10 @@ class QuorumHandler(BaseHTTPRequestHandler):
     def _reply_participants(self) -> None:
         paths = self.server.paths
         rows = parse_participants(paths.participants)
+        # Run doctor inline so the UI sees live health, not whatever
+        # value happens to be in the participants.md `Health` column.
+        # `shutil.which` is fast — fine to do on every poll.
+        health_by_handle = {h.handle: h for h in doctor_check(paths)}
         self._reply_json(
             HTTPStatus.OK,
             {
@@ -331,6 +336,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
                         "account_label": p.account_label,
                         "health": p.health,
                         "inherits_fitness_from": p.inherits_fitness_from,
+                        "live_health": _live_health_dict(health_by_handle.get(p.handle)),
                     }
                     for p in rows
                 ],
@@ -982,6 +988,17 @@ class QuorumHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------- #
 # Helpers (pure)
 # ---------------------------------------------------------------------- #
+
+
+def _live_health_dict(h: Any) -> dict[str, Any] | None:
+    """Serialise a HandleHealth dataclass to a JSON-friendly shape."""
+    if h is None:
+        return None
+    return {
+        "on_path": h.on_path,
+        "note": h.note,
+        "transport": h.transport,
+    }
 
 
 def _as_optional_int(v: Any) -> int | None:

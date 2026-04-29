@@ -32,7 +32,7 @@ import {
   getState,
   subscribeStream,
 } from "@/lib/api/conductor";
-import { ChevronRight, Loader2, Plus, RotateCw, Settings2, Wand2 } from "lucide-react";
+import { ChevronRight, Loader2, Plus, RefreshCw, RotateCw, Settings2, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
@@ -240,15 +240,31 @@ export default function WorkspacePage() {
               <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
                 Participants
               </h2>
-              <button
-                type="button"
-                onClick={() => setAddAgentOpen(true)}
-                className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
-                title="Add an agent"
-                aria-label="Add an agent"
-              >
-                <Plus size={14} strokeWidth={2} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void getParticipants().then(setParticipants);
+                    void getNextActions()
+                      .then(setNextActions)
+                      .catch(() => {});
+                  }}
+                  className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
+                  title="Verify CLIs are reachable"
+                  aria-label="Verify participants"
+                >
+                  <RefreshCw size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddAgentOpen(true)}
+                  className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
+                  title="Add an agent"
+                  aria-label="Add an agent"
+                >
+                  <Plus size={14} strokeWidth={2} />
+                </button>
+              </div>
             </div>
             <ParticipantsList participants={participants} />
           </div>

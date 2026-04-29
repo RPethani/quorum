@@ -21,31 +21,48 @@ export function ParticipantsList({
   }
   return (
     <ul className={cn("flex flex-col gap-2 px-4", className)}>
-      {participants.map((p) => (
-        <li key={p.handle} className="flex items-center gap-3">
-          <HandleAvatar handle={p.handle} size="sm" />
-          <div className="flex flex-1 flex-col min-w-0">
-            <span className="text-sm font-medium truncate">{p.display_name || p.handle}</span>
-            <span className="font-mono text-xs text-fg-tertiary truncate">
-              {p.handle} · {p.transport}
-            </span>
-          </div>
-          <Badge variant={badgeForHealth(p.health)}>{p.health}</Badge>
-        </li>
-      ))}
+      {participants.map((p) => {
+        const live = liveLabel(p);
+        return (
+          <li key={p.handle} className="flex items-center gap-3">
+            <HandleAvatar handle={p.handle} size="sm" />
+            <div className="flex flex-1 flex-col min-w-0">
+              <span className="text-sm font-medium truncate">{p.display_name || p.handle}</span>
+              <span className="font-mono text-xs text-fg-tertiary truncate">
+                {p.handle} · {p.transport}
+              </span>
+              {live.note ? (
+                <span className="mt-0.5 text-xs text-accent-danger truncate" title={live.note}>
+                  {live.note}
+                </span>
+              ) : null}
+            </div>
+            <Badge variant={live.variant}>{live.label}</Badge>
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
-function badgeForHealth(h: string): "neutral" | "success" | "warning" | "danger" {
-  switch (h.toLowerCase()) {
-    case "green":
-      return "success";
-    case "yellow":
-      return "warning";
-    case "red":
-      return "danger";
-    default:
-      return "neutral";
+function liveLabel(p: ParticipantRow): {
+  label: string;
+  note: string;
+  variant: "neutral" | "success" | "warning" | "danger";
+} {
+  const live = p.live_health;
+  if (live && live.transport === "cli") {
+    if (live.on_path === true) return { label: "ready", note: "", variant: "success" };
+    if (live.on_path === false) {
+      return {
+        label: "unreachable",
+        note: live.note || "CLI not on PATH",
+        variant: "danger",
+      };
+    }
   }
+  if (live && live.transport !== "cli") {
+    return { label: live.transport, note: "", variant: "neutral" };
+  }
+  return { label: p.health || "unknown", note: "", variant: "neutral" };
 }
