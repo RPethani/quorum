@@ -17,6 +17,7 @@ import contextlib
 import errno
 import json
 import os
+import platform
 import shutil
 import signal
 import socket
@@ -295,9 +296,17 @@ def _start_ui(paths: WorkspacePaths, *, ui_port: int, server_port: int) -> Servi
     # The browser-side default is http://127.0.0.1:8500; if the user
     # picked another server port, expose it so the UI can prefer it.
     env["NEXT_PUBLIC_QUORUM_API"] = f"http://127.0.0.1:{server_port}"
+    # If we're an x86_64 Python running under Rosetta on Apple Silicon
+    # hardware, child node processes inherit x86_64 — and platform-
+    # specific deps like lightningcss only ship the arm64 binary on
+    # this machine. Force the spawn back to native arm64 so the right
+    # native module is loaded.
+    cmd: list[str] = [pkg_mgr, "run", "dev"]
+    if _running_under_rosetta_on_arm64():
+        cmd = ["arch", "-arm64", *cmd]
     try:
         proc = subprocess.Popen(
-            [pkg_mgr, "run", "dev"],
+            cmd,
             cwd=str(ui_dir),
             stdin=subprocess.DEVNULL,
             stdout=log,
@@ -468,6 +477,30 @@ def _tail_log(log_path: Path, *, max_bytes: int = _LOG_BYTES_TAIL) -> str:
         end = f.tell()
         f.seek(max(0, end - max_bytes))
         return f.read().decode("utf-8", errors="replace").strip()
+
+
+def _running_under_rosetta_on_arm64() -> bool:
+    """True if this Python is x86_64 but the host is Apple Silicon.
+
+    Rosetta-translated children inherit the x86_64 arch, which breaks
+    native modules (e.g. lightningcss) that only ship arm64 binaries
+    on this machine. Detected via `sysctl.proc_translated`, which the
+    macOS kernel sets to "1" when the calling process is translated.
+    """
+    if sys.platform != "darwin":
+        return False
+    if platform.machine() != "x86_64":
+        return False
+    try:
+        out = subprocess.check_output(
+            ["sysctl", "-n", "sysctl.proc_translated"],
+            text=True,
+            timeout=1.0,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out == "1"
 
 
 def _detect_pkg_manager(ui_dir: Path) -> str | None:
