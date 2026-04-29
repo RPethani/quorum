@@ -30,16 +30,18 @@ export function RawEditorDialog({
   const [originalContent, setOriginalContent] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    setError(null);
+    setListError(null);
     try {
       const listing = await getRawListing();
       setFiles(listing.files);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    } catch {
+      setListError("Couldn't load the file list. Check that the conductor is reachable.");
     }
   }, []);
 
@@ -48,17 +50,29 @@ export function RawEditorDialog({
     void refresh();
   }, [open, refresh]);
 
-  const loadFile = useCallback(async (path: string) => {
-    setLoading(true);
-    setError(null);
+  const loadFile = useCallback(async (entry: RawFileEntry) => {
+    setSelected(entry.path);
     setSavedAt(null);
+    setFileError(null);
+    if (!entry.exists) {
+      // File on the whitelist but not yet on disk — let the user
+      // start with an empty buffer; saving will create it.
+      setContent("");
+      setOriginalContent("");
+      setMissing(true);
+      return;
+    }
+    setMissing(false);
+    setLoading(true);
     try {
-      const f = await getRawFile(path);
+      const f = await getRawFile(entry.path);
       setContent(f.content);
       setOriginalContent(f.content);
-      setSelected(path);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setContent("");
+      setOriginalContent("");
+      setFileError(_friendlyLoadError(msg));
     } finally {
       setLoading(false);
     }
@@ -67,14 +81,16 @@ export function RawEditorDialog({
   async function save() {
     if (!selected) return;
     setSaving(true);
-    setError(null);
+    setFileError(null);
     try {
       await saveRawFile(selected, content);
       setOriginalContent(content);
       setSavedAt(new Date().toLocaleTimeString());
+      setMissing(false);
       void refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setFileError(_friendlySaveError(msg));
     } finally {
       setSaving(false);
     }
@@ -95,13 +111,12 @@ export function RawEditorDialog({
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-tertiary">
             Whitelisted files
           </p>
-          {error ? <p className="mb-2 text-xs text-accent-danger">{error}</p> : null}
           <ul className="space-y-0.5">
             {files.map((f) => (
               <li key={f.path}>
                 <button
                   type="button"
-                  onClick={() => void loadFile(f.path)}
+                  onClick={() => void loadFile(f)}
                   className={`flex w-full items-start gap-1.5 rounded-sm px-2 py-1 text-left text-xs transition-colors ${
                     selected === f.path
                       ? "bg-accent-primary-weak text-accent-primary"
@@ -111,11 +126,19 @@ export function RawEditorDialog({
                 >
                   <FileText size={12} className="mt-0.5 shrink-0" strokeWidth={1.5} />
                   <span className="font-mono truncate">{f.path}</span>
+                  {!f.exists ? (
+                    <span className="ml-auto shrink-0 text-[10px] uppercase text-fg-tertiary">
+                      empty
+                    </span>
+                  ) : null}
                 </button>
               </li>
             ))}
-            {files.length === 0 ? <li className="text-xs text-fg-tertiary">Loading…</li> : null}
+            {files.length === 0 && !listError ? (
+              <li className="text-xs text-fg-tertiary">Loading…</li>
+            ) : null}
           </ul>
+          {listError ? <p className="mt-3 text-xs text-accent-danger">{listError}</p> : null}
         </aside>
 
         <main className="flex flex-col">
@@ -125,16 +148,31 @@ export function RawEditorDialog({
                 <code className="font-mono text-xs text-fg-secondary">{selected}</code>
                 {savedAt ? (
                   <span className="text-[11px] text-accent-success">Saved at {savedAt}</span>
+                ) : missing ? (
+                  <span className="text-[11px] text-fg-tertiary">
+                    new file — saving will create it
+                  </span>
                 ) : dirty ? (
                   <span className="text-[11px] text-accent-warning">unsaved changes</span>
                 ) : null}
               </div>
-              <Textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="h-full min-h-[24rem] font-mono text-xs leading-relaxed"
-                disabled={loading}
-              />
+              {fileError ? (
+                <div className="rounded-md border border-accent-danger/40 bg-accent-danger-weak px-3 py-2 text-sm text-accent-danger">
+                  {fileError}
+                </div>
+              ) : (
+                <Textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="h-full min-h-[24rem] font-mono text-xs leading-relaxed"
+                  disabled={loading}
+                  placeholder={
+                    missing
+                      ? "This file doesn't exist yet. Type to create it, then click Save."
+                      : undefined
+                  }
+                />
+              )}
             </>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-fg-tertiary">
@@ -148,11 +186,43 @@ export function RawEditorDialog({
         <Button variant="outline" onClick={onClose} disabled={saving}>
           Close
         </Button>
-        <Button variant="primary" onClick={save} disabled={!selected || !dirty || saving}>
+        <Button
+          variant="primary"
+          onClick={save}
+          disabled={!selected || saving || !!fileError || (!dirty && !missing)}
+        >
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
           Save
         </Button>
       </DialogFooter>
     </Dialog>
   );
+}
+
+function _friendlyLoadError(raw: string): string {
+  if (/404/.test(raw)) {
+    // Shouldn't reach here normally — listing carries `exists`. But
+    // guard for race conditions (file deleted between list and load).
+    return "That file doesn't exist on disk yet. Saving will create it.";
+  }
+  if (/403/.test(raw)) {
+    return "Conductor refused to read this file. It isn't on the editable whitelist.";
+  }
+  if (/Could not reach the conductor/i.test(raw)) {
+    return "Couldn't reach the conductor. Check that `quorum serve` is running.";
+  }
+  if (/500/.test(raw)) {
+    return "The conductor hit an error reading this file. Check the server logs.";
+  }
+  return "Couldn't read this file.";
+}
+
+function _friendlySaveError(raw: string): string {
+  if (/403/.test(raw)) {
+    return "Conductor refused this write. The file isn't on the editable whitelist.";
+  }
+  if (/Could not reach the conductor/i.test(raw)) {
+    return "Couldn't reach the conductor. Your changes weren't saved.";
+  }
+  return "Couldn't save the file.";
 }
