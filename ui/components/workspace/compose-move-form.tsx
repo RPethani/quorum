@@ -172,21 +172,12 @@ export function ComposeMoveForm({
           </div>
 
           {sections.map((name) => (
-            <div key={name}>
-              <label
-                htmlFor={`s-${name}`}
-                className="mb-1 block text-xs font-medium uppercase tracking-wider text-fg-tertiary"
-              >
-                {name}
-              </label>
-              <Textarea
-                id={`s-${name}`}
-                value={sectionValues[name] ?? ""}
-                onChange={(e) => setSectionValues((prev) => ({ ...prev, [name]: e.target.value }))}
-                placeholder={placeholderFor(name)}
-                className="min-h-[5rem]"
-              />
-            </div>
+            <SectionField
+              key={name}
+              name={name}
+              value={sectionValues[name] ?? ""}
+              onChange={(v) => setSectionValues((prev) => ({ ...prev, [name]: v }))}
+            />
           ))}
 
           {error ? <p className="text-xs text-accent-danger">{error}</p> : null}
@@ -210,14 +201,75 @@ function placeholderFor(name: string): string | undefined {
   switch (name) {
     case "Summary line":
       return "One sentence, ≤120 chars, plain English. e.g. 'v1 ships trial-only (14d), free-tier revisited at month 6.'";
-    case "Stakes":
-      return "trivial | tactical | strategic | irreversible";
-    case "Spawns ADR?":
-    case "Spawns task?":
-      return "yes | no";
-    case "Force level":
-      return "advisory | strong | overriding";
     default:
       return undefined;
   }
 }
+
+/**
+ * Per-section input — picks the right widget based on the section
+ * name (one-line text for Summary line, dropdown for enumerable
+ * fields like Stakes / Force level / Spawns ADR?, free-form
+ * Textarea for everything else).
+ */
+function SectionField({
+  name,
+  value,
+  onChange,
+}: {
+  name: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const enumValues = SECTION_ENUMS[name];
+  return (
+    <div>
+      <label
+        htmlFor={`s-${name}`}
+        className="mb-1 block text-xs font-medium uppercase tracking-wider text-fg-tertiary"
+      >
+        {name}
+      </label>
+      {enumValues ? (
+        <select
+          id={`s-${name}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-9 w-full rounded-sm border border-border-default bg-elevated px-3 text-sm"
+        >
+          <option value="">(select)</option>
+          {enumValues.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+      ) : name === "Summary line" ? (
+        <Input
+          id={`s-${name}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholderFor(name)}
+          maxLength={120}
+        />
+      ) : (
+        <Textarea
+          id={`s-${name}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholderFor(name)}
+          className="min-h-[5rem]"
+        />
+      )}
+    </div>
+  );
+}
+
+const SECTION_ENUMS: Record<string, string[]> = {
+  Stakes: ["trivial", "tactical", "strategic", "irreversible"],
+  "Force level": ["advisory", "strong", "overriding"],
+  "Spawns ADR?": ["yes", "no"],
+  "Spawns task?": ["yes", "no"],
+  Direction: ["narrow", "broaden", "redirect"],
+  Duration: ["this-deliberation", "until-decision", "permanent"],
+};

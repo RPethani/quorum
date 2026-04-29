@@ -12,11 +12,13 @@ import {
   type ManifestResponse,
   type ParticipantRow,
   type SettingsApplyResponse,
+  type SettingsResponse,
   type WorkspaceStateResponse,
   applySettings,
   getContextManifest,
   getManifest,
   getParticipants,
+  getSettings,
   getState,
 } from "@/lib/api/conductor";
 import { Lock, Plus, Save } from "lucide-react";
@@ -39,22 +41,25 @@ export function SettingsDialog({
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [manifest, setManifest] = useState<ManifestResponse | null>(null);
   const [context, setContext] = useState<ContextManifest | null>(null);
+  const [settings, setSettings] = useState<SettingsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savingMessage, setSavingMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [s, p, m, c] = await Promise.all([
+      const [s, p, m, c, sv] = await Promise.all([
         getState(),
         getParticipants(),
         getManifest(),
         getContextManifest(),
+        getSettings(),
       ]);
       setState(s);
       setParticipants(p);
       setManifest(m);
       setContext(c);
+      setSettings(sv);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -112,14 +117,39 @@ export function SettingsDialog({
           <CardHeader>
             <CardTitle>Context</CardTitle>
             <p className="text-sm text-fg-secondary">
-              Repos, documents, web URLs, notes. Add via{" "}
-              <code className="font-mono">quorum context add-…</code> CLI for v1.
+              Repos, documents, web URLs, notes. Manage from the Context dialog.
             </p>
           </CardHeader>
           <CardContent className="text-sm">
             <ContextSummary context={context} />
           </CardContent>
         </Card>
+
+        <DigesterDefaultsPanel
+          settings={settings}
+          participants={participants}
+          onSaved={(msg) => {
+            setSavingMessage(msg);
+            void refresh();
+          }}
+        />
+
+        <RoutingOverridesPanel
+          settings={settings}
+          participants={participants}
+          onSaved={(msg) => {
+            setSavingMessage(msg);
+            void refresh();
+          }}
+        />
+
+        <AutoApprovePanel
+          settings={settings}
+          onSaved={(msg) => {
+            setSavingMessage(msg);
+            void refresh();
+          }}
+        />
 
         <UnavailabilityPanel
           state={state}
@@ -370,4 +400,248 @@ function announce(res: SettingsApplyResponse, onSaved: (msg: string) => void): v
     parts.push(`Rejected: ${res.rejected.map((r) => `${r.field} (${r.reason})`).join(", ")}`);
   }
   onSaved(parts.join(" — "));
+}
+
+// ---------------------------------------------------------------------- //
+// Digester defaults — relevance-tier model selection (design-doc §1.8)
+// ---------------------------------------------------------------------- //
+
+function DigesterDefaultsPanel({
+  settings,
+  participants,
+  onSaved,
+}: {
+  settings: SettingsResponse | null;
+  participants: ParticipantRow[];
+  onSaved: (msg: string) => void;
+}) {
+  const [high, setHigh] = useState("");
+  const [medium, setMedium] = useState("");
+  const [low, setLow] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!settings) return;
+    setHigh(settings.digester_defaults.high || "");
+    setMedium(settings.digester_defaults.medium || "");
+    setLow(settings.digester_defaults.low || "");
+  }, [settings]);
+
+  const cliHandles = participants.filter((p) => p.transport === "cli");
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await applySettings({
+        digester_defaults: {
+          ...(high ? { high } : {}),
+          ...(medium ? { medium } : {}),
+          ...(low ? { low } : {}),
+        },
+      });
+      announce(res, onSaved);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          Digester defaults <Badge variant="primary">live</Badge>
+        </CardTitle>
+        <p className="text-sm text-fg-secondary">
+          Default agent for digesting context sources, per relevance level. Per-source overrides on
+          Add or in the Digestion dialog still take priority.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {(
+          [
+            ["high", high, setHigh, "@claude-opus"],
+            ["medium", medium, setMedium, "@claude-sonnet"],
+            ["low", low, setLow, "@claude-haiku"],
+          ] as const
+        ).map(([level, value, setter, canonical]) => (
+          <div key={level} className="grid grid-cols-[100px_1fr] items-center gap-2">
+            <span className="text-xs uppercase tracking-wider text-fg-tertiary">{level}</span>
+            <select
+              value={value}
+              onChange={(e) => setter(e.target.value)}
+              className="h-9 rounded-sm border border-border-default bg-elevated px-3 text-sm"
+            >
+              <option value="">canonical default ({canonical})</option>
+              {cliHandles.map((h) => (
+                <option key={h.handle} value={h.handle}>
+                  {h.handle}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+        <Button variant="primary" onClick={save} disabled={saving}>
+          <Save size={14} /> Save
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------- //
+// Routing overrides — workspace-level role pin (Layer 2)
+// ---------------------------------------------------------------------- //
+
+const ROUTING_ROLES = [
+  "proposer",
+  "critic",
+  "synthesizer",
+  "decider",
+  "deputy_decider",
+  "ratifier",
+  "explainer",
+  "questioner",
+  "answerer",
+] as const;
+
+function RoutingOverridesPanel({
+  settings,
+  participants,
+  onSaved,
+}: {
+  settings: SettingsResponse | null;
+  participants: ParticipantRow[];
+  onSaved: (msg: string) => void;
+}) {
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!settings) return;
+    setOverrides({ ...settings.routing_overrides });
+  }, [settings]);
+
+  const cliHandles = participants.filter((p) => p.transport === "cli" || p.transport === "manual");
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await applySettings({ routing_overrides: overrides });
+      announce(res, onSaved);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          Routing overrides <Badge variant="primary">live</Badge>
+        </CardTitle>
+        <p className="text-sm text-fg-secondary">
+          Workspace-level pin for a role (Layer 2). Per-deliberation pins still override these.
+          Leave blank to fall through to fitness-based routing.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {ROUTING_ROLES.map((role) => (
+          <div key={role} className="grid grid-cols-[120px_1fr] items-center gap-2">
+            <span className="text-xs uppercase tracking-wider text-fg-tertiary">
+              {role.replace("_", " ")}
+            </span>
+            <select
+              value={overrides[role] || ""}
+              onChange={(e) =>
+                setOverrides((prev) => {
+                  const next = { ...prev };
+                  if (e.target.value) next[role] = e.target.value;
+                  else delete next[role];
+                  return next;
+                })
+              }
+              className="h-9 rounded-sm border border-border-default bg-elevated px-3 text-sm"
+            >
+              <option value="">(no override — fitness-based)</option>
+              {cliHandles.map((h) => (
+                <option key={h.handle} value={h.handle}>
+                  {h.handle}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+        <Button variant="primary" onClick={save} disabled={saving}>
+          <Save size={14} /> Save
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------- //
+// Auto-approve permissions — convenience for low-stakes calls.
+// ---------------------------------------------------------------------- //
+
+function AutoApprovePanel({
+  settings,
+  onSaved,
+}: {
+  settings: SettingsResponse | null;
+  onSaved: (msg: string) => void;
+}) {
+  const [policy, setPolicy] = useState<string>("none");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!settings) return;
+    setPolicy(settings.auto_approve_stakes_below || "none");
+  }, [settings]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await applySettings({
+        auto_approve_stakes_below: policy as
+          | "trivial"
+          | "tactical"
+          | "strategic"
+          | "irreversible"
+          | "none",
+      });
+      announce(res, onSaved);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          Permission auto-approval <Badge variant="primary">live</Badge>
+        </CardTitle>
+        <p className="text-sm text-fg-secondary">
+          The conductor auto-approves permission requests at or below this stake tier. Anything
+          stricter still requires your explicit decision.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <select
+          value={policy}
+          onChange={(e) => setPolicy(e.target.value)}
+          className="h-9 rounded-sm border border-border-default bg-elevated px-3 text-sm"
+        >
+          <option value="none">none — every request requires approval</option>
+          <option value="trivial">≤ trivial</option>
+          <option value="tactical">≤ tactical</option>
+          <option value="strategic">≤ strategic</option>
+          <option value="irreversible">≤ irreversible (most permissive)</option>
+        </select>
+        <Button variant="primary" onClick={save} disabled={saving}>
+          <Save size={14} /> Save
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }

@@ -232,6 +232,19 @@ export type NextAction = {
   primary: boolean;
 };
 
+export type SettingsResponse = {
+  cost_ceiling_usd: number | null;
+  cost_enforce: boolean | null;
+  unavailability_policy: string | null;
+  digester_defaults: Record<string, string>;
+  auto_approve_stakes_below: string | null;
+  routing_overrides: Record<string, string>;
+};
+
+export async function getSettings(): Promise<SettingsResponse> {
+  return getJSON<SettingsResponse>("/api/settings");
+}
+
 export type WizardPayload = {
   manifest_template?: string | null;
   mode?: "interactive" | "autonomous";
@@ -563,6 +576,9 @@ export type SettingsPayload = {
   cost_enforce?: boolean;
   unavailability_policy?: "strict" | "substitute" | "substitute_aggressively";
   mode?: "interactive" | "autonomous";
+  digester_defaults?: Record<string, string>;
+  auto_approve_stakes_below?: "trivial" | "tactical" | "strategic" | "irreversible" | "none" | null;
+  routing_overrides?: Record<string, string>;
 };
 
 export type SettingsApplyResponse = {

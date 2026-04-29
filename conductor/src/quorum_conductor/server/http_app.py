@@ -192,6 +192,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_permissions_list()
             if path == "/api/next-actions":
                 return self._reply_next_actions()
+            if path == "/api/settings":
+                return self._reply_settings()
             if path == "/api/fs/list":
                 return self._reply_fs_list(query)
             if path == "/api/context/digestions":
@@ -1089,6 +1091,44 @@ class QuorumHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _reply_settings(self) -> None:
+        """Return the live-editable subset of config.yaml as JSON."""
+        import yaml
+
+        paths = self.server.paths
+        text = (
+            paths.config_yaml.read_text(encoding="utf-8")
+            if paths.config_yaml.is_file()
+            else ""
+        )
+        try:
+            raw = yaml.safe_load(text) or {}
+        except Exception:
+            raw = {}
+        if not isinstance(raw, dict):
+            raw = {}
+        cost = raw.get("cost") if isinstance(raw.get("cost"), dict) else {}
+        ctx = raw.get("context") if isinstance(raw.get("context"), dict) else {}
+        perms = raw.get("permissions") if isinstance(raw.get("permissions"), dict) else {}
+        routing = raw.get("routing") if isinstance(raw.get("routing"), dict) else {}
+        body: dict[str, Any] = {
+            "cost_ceiling_usd": cost.get("ceiling_usd") if isinstance(cost, dict) else None,
+            "cost_enforce": cost.get("enforce") if isinstance(cost, dict) else None,
+            "unavailability_policy": raw.get("unavailability_policy"),
+            "digester_defaults": (
+                ctx.get("digester_defaults") if isinstance(ctx, dict) else {}
+            )
+            or {},
+            "auto_approve_stakes_below": (
+                perms.get("auto_approve_stakes_below") if isinstance(perms, dict) else None
+            ),
+            "routing_overrides": (
+                routing.get("overrides") if isinstance(routing, dict) else {}
+            )
+            or {},
+        }
+        self._reply_json(HTTPStatus.OK, body)
+
     def _reply_next_actions(self) -> None:
         paths = self.server.paths
         actions = compute_next_actions(paths)
@@ -1264,7 +1304,15 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 self._update_state_mode(paths, str(payload["mode"]))
                 applied.append("mode")
 
-        if any(k in payload for k in ("cost_ceiling_usd", "cost_enforce", "unavailability_policy")):
+        config_keys = (
+            "cost_ceiling_usd",
+            "cost_enforce",
+            "unavailability_policy",
+            "digester_defaults",
+            "auto_approve_stakes_below",
+            "routing_overrides",
+        )
+        if any(k in payload for k in config_keys):
             self._update_config_yaml_extended(paths, payload)
             applied.append("config.yaml")
 
@@ -1298,6 +1346,36 @@ class QuorumHandler(BaseHTTPRequestHandler):
             raw["cost"] = cost
         if "unavailability_policy" in payload:
             raw["unavailability_policy"] = str(payload["unavailability_policy"])
+        if "digester_defaults" in payload:
+            ctx = raw.get("context") if isinstance(raw.get("context"), dict) else {}
+            ctx = dict(ctx) if isinstance(ctx, dict) else {}
+            defaults = payload["digester_defaults"]
+            if isinstance(defaults, dict):
+                ctx["digester_defaults"] = {
+                    k: str(v).strip()
+                    for k, v in defaults.items()
+                    if k in {"high", "medium", "low"} and str(v).strip()
+                }
+                raw["context"] = ctx
+        if "auto_approve_stakes_below" in payload:
+            perms = raw.get("permissions") if isinstance(raw.get("permissions"), dict) else {}
+            perms = dict(perms) if isinstance(perms, dict) else {}
+            v = payload["auto_approve_stakes_below"]
+            if v in (None, "", "none"):
+                perms.pop("auto_approve_stakes_below", None)
+            elif str(v) in {"trivial", "tactical", "strategic", "irreversible"}:
+                perms["auto_approve_stakes_below"] = str(v)
+            raw["permissions"] = perms
+        if "routing_overrides" in payload:
+            r = raw.get("routing") if isinstance(raw.get("routing"), dict) else {}
+            r = dict(r) if isinstance(r, dict) else {}
+            ov = payload["routing_overrides"]
+            if isinstance(ov, dict):
+                cleaned = {
+                    str(k): str(v).strip() for k, v in ov.items() if str(v).strip()
+                }
+                r["overrides"] = cleaned
+                raw["routing"] = r
         paths.config_yaml.write_text(
             yaml.safe_dump(raw, sort_keys=False, default_flow_style=False),
             encoding="utf-8",
