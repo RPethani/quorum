@@ -54,16 +54,36 @@ cd "$UI_DIR"
 $JS_INSTALL
 ok "JS deps installed at $UI_DIR/node_modules"
 
+# ----- expose `quorum` globally -----
+# `uv tool install -e` drops a `quorum` shim into uv's tool-bin
+# directory (typically `~/.local/bin`). Re-running with `--force`
+# upgrades the link in place, so the script stays idempotent.
+step "Installing the 'quorum' command globally"
+cd "$CONDUCTOR_DIR"
+uv tool install --force -e .
+TOOL_BIN="$(uv tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")"
+ok "Installed shim at $TOOL_BIN/quorum"
+
+# Make sure `~/.local/bin` (or wherever uv tools live) is on PATH for
+# future shells. `uv tool update-shell` is idempotent and edits the
+# user's shell rc only if needed.
+if ! command -v quorum >/dev/null 2>&1; then
+    step "Adding $TOOL_BIN to PATH (via 'uv tool update-shell')"
+    uv tool update-shell || warn "uv tool update-shell failed — add $TOOL_BIN to PATH manually."
+fi
+
 # ----- next steps -----
 echo
 ok "Quorum installed at $REPO_ROOT"
 echo
-echo "To run the conductor's CLI from any directory, expose it on your PATH:"
-echo
-echo "    export PATH=\"$CONDUCTOR_DIR/.venv/bin:\$PATH\""
-echo
-echo "Or invoke through uv from inside $CONDUCTOR_DIR:"
-echo
-echo "    uv run quorum --help"
+if command -v quorum >/dev/null 2>&1; then
+    echo "Try it now:"
+    echo
+    echo "    quorum --help"
+else
+    echo "Open a new terminal (or 'source ~/.zshrc') so PATH picks up $TOOL_BIN, then:"
+    echo
+    echo "    quorum --help"
+fi
 echo
 echo "Quickstart: see $REPO_ROOT/docs/quickstart.md"

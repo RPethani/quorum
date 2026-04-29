@@ -82,6 +82,26 @@ class QuorumHTTPServer(ThreadingHTTPServer):
     paths: WorkspacePaths
     stream_hub: StreamHub | None = None
 
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Silently drop connection-reset / broken-pipe noise.
+
+        These are emitted whenever the browser tears down an EventSource
+        (page reload, navigation, devtools refresh) — benign for the
+        server, but the stdlib default prints a full traceback for every
+        one. We only suppress the connection-tier errors; everything
+        else still falls through to the default logger.
+        """
+        import sys
+        import traceback
+
+        exc_type, _exc_value, _tb = sys.exc_info()
+        if exc_type is not None and issubclass(
+            exc_type, ConnectionResetError | BrokenPipeError | ConnectionAbortedError
+        ):
+            return
+        sys.stderr.write("Exception occurred during processing of request:\n")
+        traceback.print_exc()
+
 
 def create_server(
     paths: WorkspacePaths,
