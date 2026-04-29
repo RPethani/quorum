@@ -166,7 +166,7 @@ This phase is heavy on real CLI invocations and costs real money. Watch the cost
 
 ---
 
-## Phase 13 — Real-world testing ⬜
+## Phase 13 — Real-world testing 🟡 (deferred to user-driven sessions — ADR-005)
 
 **Goal.** Run 3–5 representative workspaces of different types (saas product, research direction, architecture decision, …). Observe failures across the full cycle. Fix protocol/prompts/UI as issues surface.
 
