@@ -220,6 +220,172 @@ class ValidationFailed(Event):
 
 
 @dataclass(frozen=True)
+class DigesterChosen(Event):
+    """Audit trail for §1.8: which agent was picked to digest a context source."""
+
+    handle: str = ""
+    relevance: str = ""
+    target: str = ""  # "context.repos.<n>" or "context.docs.<n>"
+    overridden: bool = False  # True if user picked something other than the proposed default
+
+    def __init__(
+        self,
+        *,
+        handle: str,
+        relevance: str,
+        target: str,
+        overridden: bool = False,
+        ts: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "type", "digester_chosen")
+        object.__setattr__(self, "ts", ts or _now_iso())
+        object.__setattr__(self, "schema_version", EVENT_SCHEMA_VERSION)
+        object.__setattr__(self, "handle", handle)
+        object.__setattr__(self, "relevance", relevance)
+        object.__setattr__(self, "target", target)
+        object.__setattr__(self, "overridden", overridden)
+
+
+@dataclass(frozen=True)
+class DigestStarted(Event):
+    handle: str = ""
+    target: str = ""
+    relevance: str = ""
+
+    def __init__(
+        self,
+        *,
+        handle: str,
+        target: str,
+        relevance: str,
+        ts: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "type", "digest_started")
+        object.__setattr__(self, "ts", ts or _now_iso())
+        object.__setattr__(self, "schema_version", EVENT_SCHEMA_VERSION)
+        object.__setattr__(self, "handle", handle)
+        object.__setattr__(self, "target", target)
+        object.__setattr__(self, "relevance", relevance)
+
+
+@dataclass(frozen=True)
+class DigestCompleted(Event):
+    handle: str = ""
+    target: str = ""
+    status: str = ""  # "ok" | "failed"
+    duration_s: float | None = None
+    error: str | None = None
+
+    def __init__(
+        self,
+        *,
+        handle: str,
+        target: str,
+        status: str,
+        duration_s: float | None = None,
+        error: str | None = None,
+        ts: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "type", "digest_completed")
+        object.__setattr__(self, "ts", ts or _now_iso())
+        object.__setattr__(self, "schema_version", EVENT_SCHEMA_VERSION)
+        object.__setattr__(self, "handle", handle)
+        object.__setattr__(self, "target", target)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "duration_s", duration_s)
+        object.__setattr__(self, "error", error)
+
+
+@dataclass(frozen=True)
+class PermissionRequested(Event):
+    request_id: str = ""
+    handle: str = ""
+    deliberation_id: str = ""
+    tool: str = ""
+    operation: str = ""
+    stakes: str = ""
+
+    def __init__(
+        self,
+        *,
+        request_id: str,
+        handle: str,
+        deliberation_id: str,
+        tool: str,
+        operation: str,
+        stakes: str,
+        ts: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "type", "permission_requested")
+        object.__setattr__(self, "ts", ts or _now_iso())
+        object.__setattr__(self, "schema_version", EVENT_SCHEMA_VERSION)
+        object.__setattr__(self, "request_id", request_id)
+        object.__setattr__(self, "handle", handle)
+        object.__setattr__(self, "deliberation_id", deliberation_id)
+        object.__setattr__(self, "tool", tool)
+        object.__setattr__(self, "operation", operation)
+        object.__setattr__(self, "stakes", stakes)
+
+
+@dataclass(frozen=True)
+class PermissionDecided(Event):
+    request_id: str = ""
+    handle: str = ""
+    decision: str = ""  # "approved" | "denied"
+    decided_by: str = ""
+    reason: str | None = None
+
+    def __init__(
+        self,
+        *,
+        request_id: str,
+        handle: str,
+        decision: str,
+        decided_by: str,
+        reason: str | None = None,
+        ts: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "type", "permission_decided")
+        object.__setattr__(self, "ts", ts or _now_iso())
+        object.__setattr__(self, "schema_version", EVENT_SCHEMA_VERSION)
+        object.__setattr__(self, "request_id", request_id)
+        object.__setattr__(self, "handle", handle)
+        object.__setattr__(self, "decision", decision)
+        object.__setattr__(self, "decided_by", decided_by)
+        object.__setattr__(self, "reason", reason)
+
+
+@dataclass(frozen=True)
+class ContextLoaded(Event):
+    """Bundle composition snapshot for an invocation (cost-discipline §10)."""
+
+    handle: str = ""
+    role: str = ""
+    deliberation_id: str = ""
+    bundle_tokens_estimated: int = 0
+    sources: list[dict[str, Any]] = field(default_factory=list)
+
+    def __init__(
+        self,
+        *,
+        handle: str,
+        role: str,
+        deliberation_id: str,
+        bundle_tokens_estimated: int,
+        sources: list[dict[str, Any]],
+        ts: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "type", "context_loaded")
+        object.__setattr__(self, "ts", ts or _now_iso())
+        object.__setattr__(self, "schema_version", EVENT_SCHEMA_VERSION)
+        object.__setattr__(self, "handle", handle)
+        object.__setattr__(self, "role", role)
+        object.__setattr__(self, "deliberation_id", deliberation_id)
+        object.__setattr__(self, "bundle_tokens_estimated", bundle_tokens_estimated)
+        object.__setattr__(self, "sources", sources)
+
+
+@dataclass(frozen=True)
 class MoveAppended(Event):
     handle: str = ""
     role: str = ""

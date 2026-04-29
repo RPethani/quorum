@@ -90,36 +90,78 @@ def route(
     """
     by_handle = {p.handle: p for p in participants}
     deliberation_id = deliberation.id
+    policy = (config.unavailability_policy or "substitute").lower()
 
     # ---------------- Layer 1: per-deliberation override --------------- #
     pinned = deliberation.roles.for_role(role)
-    if pinned and pinned in by_handle and _is_available(by_handle[pinned]):
+    if pinned and pinned in by_handle:
         p = by_handle[pinned]
-        return RoutingDecision(
-            handle=pinned,
-            role=role,
-            deliberation_id=deliberation_id,
-            layer=RoutingLayer.PER_DELIBERATION,
-            fitness=defaults.fitness_for(
-                pinned, role, inherits_from=p.inherits_fitness_from
-            ),
-            cost=defaults.cost_for(pinned, inherits_from=p.inherits_fitness_from),
-        )
+        if _is_available(p):
+            return RoutingDecision(
+                handle=pinned,
+                role=role,
+                deliberation_id=deliberation_id,
+                layer=RoutingLayer.PER_DELIBERATION,
+                fitness=defaults.fitness_for(
+                    pinned, role, inherits_from=p.inherits_fitness_from
+                ),
+                cost=defaults.cost_for(pinned, inherits_from=p.inherits_fitness_from),
+            )
+        if policy == "strict":
+            # design-doc: don't substitute when the pinned handle is down.
+            raise NoHandleAvailableError(
+                role=role,
+                deliberation_id=deliberation_id,
+                alternatives=[
+                    Alternative(
+                        handle=pinned,
+                        fitness=defaults.fitness_for(
+                            pinned, role, inherits_from=p.inherits_fitness_from
+                        ),
+                        cost=defaults.cost_for(
+                            pinned, inherits_from=p.inherits_fitness_from
+                        ),
+                        rejected_because=(
+                            f"{_unavailability_reason(p)} (policy: strict)"
+                        ),
+                    )
+                ],
+            )
 
     # ---------------- Layer 2: workspace override ---------------------- #
     override = config.routing_overrides.get(role)
-    if override and override in by_handle and _is_available(by_handle[override]):
+    if override and override in by_handle:
         p = by_handle[override]
-        return RoutingDecision(
-            handle=override,
-            role=role,
-            deliberation_id=deliberation_id,
-            layer=RoutingLayer.WORKSPACE,
-            fitness=defaults.fitness_for(
-                override, role, inherits_from=p.inherits_fitness_from
-            ),
-            cost=defaults.cost_for(override, inherits_from=p.inherits_fitness_from),
-        )
+        if _is_available(p):
+            return RoutingDecision(
+                handle=override,
+                role=role,
+                deliberation_id=deliberation_id,
+                layer=RoutingLayer.WORKSPACE,
+                fitness=defaults.fitness_for(
+                    override, role, inherits_from=p.inherits_fitness_from
+                ),
+                cost=defaults.cost_for(override, inherits_from=p.inherits_fitness_from),
+            )
+        if policy == "strict":
+            raise NoHandleAvailableError(
+                role=role,
+                deliberation_id=deliberation_id,
+                alternatives=[
+                    Alternative(
+                        handle=override,
+                        fitness=defaults.fitness_for(
+                            override, role, inherits_from=p.inherits_fitness_from
+                        ),
+                        cost=defaults.cost_for(
+                            override, inherits_from=p.inherits_fitness_from
+                        ),
+                        rejected_because=(
+                            f"{_unavailability_reason(p)} (policy: strict)"
+                        ),
+                    )
+                ],
+            )
 
     # ---------------- Layer 3: fitness-based defaults ------------------ #
     rated: list[tuple[Participant, int, int]] = []
@@ -172,7 +214,17 @@ def route(
         )
 
     # ---------------- Layer 4: fallback -------------------------------- #
-    if unrated_available:
+    # Policy semantics in v1:
+    #   strict      — Layer 1/2 only; raised earlier when pinned/override
+    #                 was unavailable. Should not reach this layer; if
+    #                 we did, refuse rather than silently fall through.
+    #   substitute  — current default; Layer 4 acceptable if no rated
+    #                 handle exists.
+    #   aggressive  — same as substitute in v1; semantically wider but
+    #                 there's no behavioural lever today (Layer 3 already
+    #                 picks the best rated handle, Layer 4 already takes
+    #                 any healthy handle).
+    if unrated_available and policy != "strict":
         # Pick the *highest-cost* available handle; if a workspace has
         # only an Opus and a Haiku registered for an unrated role, the
         # Opus is the safer bet. Cost has the design-doc tie-break

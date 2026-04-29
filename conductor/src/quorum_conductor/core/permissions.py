@@ -154,6 +154,7 @@ def create_request(
         status=PermissionStatus.PENDING,
     )
     _write(paths, request)
+    _emit_requested(paths, request)
     return request
 
 
@@ -287,4 +288,34 @@ def _decide(
     request.decision_reason = reason
     pending.unlink()
     _write(paths, request)
+    _emit_decided(paths, request)
     return request
+
+
+def _emit_requested(paths: WorkspacePaths, request: PermissionRequest) -> None:
+    from ..events import EventLogger, PermissionRequested
+
+    EventLogger(paths.events_jsonl).emit(
+        PermissionRequested(
+            request_id=request.id,
+            handle=request.handle,
+            deliberation_id=request.deliberation_id,
+            tool=request.tool,
+            operation=request.operation,
+            stakes=request.stakes.value,
+        )
+    )
+
+
+def _emit_decided(paths: WorkspacePaths, request: PermissionRequest) -> None:
+    from ..events import EventLogger, PermissionDecided
+
+    EventLogger(paths.events_jsonl).emit(
+        PermissionDecided(
+            request_id=request.id,
+            handle=request.handle,
+            decision=request.status.value,
+            decided_by=request.decided_by or "",
+            reason=request.decision_reason,
+        )
+    )

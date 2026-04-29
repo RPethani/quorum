@@ -26,6 +26,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from ..events import (
+    DigestCompleted,
+    DigesterChosen,
+    DigestStarted,
+    EventLogger,
+)
 from ..paths import WorkspacePaths
 from .config import load_workspace_config
 from .digestion import RepoSpec, digest_repo
@@ -225,9 +231,22 @@ def queue_digest(
         store.repos[store_key] = state
     _persist(paths, store)
 
-    # TODO: emit digester_chosen event for audit trail (design-doc §1.8).
-    # Pending a generic Event subclass; the chosen handle is recorded in
-    # runtime/services/digestions.json regardless.
+    # Audit trail (design-doc §1.8): record the chosen digester so a
+    # post-hoc replay knows whether the user accepted the proposed
+    # default or overrode it.
+    proposed = _propose_digester(
+        relevance,
+        _digester_defaults(_safe_config_extras(paths)),
+        participants,
+    )
+    EventLogger(paths.events_jsonl).emit(
+        DigesterChosen(
+            handle=chosen,
+            relevance=relevance,
+            target=f"context.{'repos' if kind == 'repo' else 'docs'}.{name}",
+            overridden=proposed is not None and proposed != chosen,
+        )
+    )
 
     target_fn = _run_digestion if kind == "repo" else _run_doc_digestion
     threading.Thread(
@@ -291,6 +310,14 @@ def _run_digestion(
         state.started_at = _now_iso()
         state.chosen_digester = digester_handle
     _persist(paths, store)
+    events = EventLogger(paths.events_jsonl)
+    events.emit(
+        DigestStarted(
+            handle=digester_handle,
+            target=f"context.repos.{name}",
+            relevance=relevance,
+        )
+    )
 
     try:
         result = digest_repo(spec, digester, target)
@@ -300,6 +327,14 @@ def _run_digestion(
             state.completed_at = _now_iso()
             state.error = f"{type(exc).__name__}: {exc}"
         _persist(paths, store)
+        events.emit(
+            DigestCompleted(
+                handle=digester_handle,
+                target=f"context.repos.{name}",
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        )
         return
 
     with _LOCK:
@@ -308,6 +343,15 @@ def _run_digestion(
         state.duration_s = result.duration_s
         state.error = result.error
     _persist(paths, store)
+    events.emit(
+        DigestCompleted(
+            handle=digester_handle,
+            target=f"context.repos.{name}",
+            status=state.status,
+            duration_s=result.duration_s,
+            error=result.error,
+        )
+    )
 
 
 def _run_doc_digestion(
@@ -364,6 +408,14 @@ def _run_doc_digestion(
         state.started_at = _now_iso()
         state.chosen_digester = digester_handle
     _persist(paths, store)
+    events = EventLogger(paths.events_jsonl)
+    events.emit(
+        DigestStarted(
+            handle=digester_handle,
+            target=f"context.docs.{name}",
+            relevance="medium",
+        )
+    )
 
     target_dir = paths.context_docs / "digested"
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -385,26 +437,53 @@ def _run_doc_digestion(
             state.completed_at = _now_iso()
             state.error = "digestion timed out (10 min)"
         _persist(paths, store)
+        events.emit(
+            DigestCompleted(
+                handle=digester_handle,
+                target=f"context.docs.{name}",
+                status="failed",
+                error="digestion timed out (10 min)",
+            )
+        )
         return
     except Exception as exc:
+        msg = f"{type(exc).__name__}: {exc}"
         with _LOCK:
             state.status = "failed"
             state.completed_at = _now_iso()
-            state.error = f"{type(exc).__name__}: {exc}"
+            state.error = msg
         _persist(paths, store)
+        events.emit(
+            DigestCompleted(
+                handle=digester_handle,
+                target=f"context.docs.{name}",
+                status="failed",
+                error=msg,
+            )
+        )
         return
 
     duration = time.time() - started
     if proc.returncode != 0 or not (proc.stdout or "").strip():
+        err = (
+            proc.stderr.strip()
+            or f"digester exited {proc.returncode} with no output"
+        )
         with _LOCK:
             state.status = "failed"
             state.completed_at = _now_iso()
             state.duration_s = duration
-            state.error = (
-                proc.stderr.strip()
-                or f"digester exited {proc.returncode} with no output"
-            )
+            state.error = err
         _persist(paths, store)
+        events.emit(
+            DigestCompleted(
+                handle=digester_handle,
+                target=f"context.docs.{name}",
+                status="failed",
+                duration_s=duration,
+                error=err,
+            )
+        )
         return
 
     target_file.write_text(proc.stdout.strip() + "\n", encoding="utf-8")
@@ -414,6 +493,14 @@ def _run_doc_digestion(
         state.duration_s = duration
         state.error = None
     _persist(paths, store)
+    events.emit(
+        DigestCompleted(
+            handle=digester_handle,
+            target=f"context.docs.{name}",
+            status="ok",
+            duration_s=duration,
+        )
+    )
 
 
 # ---------------------------------------------------------------------- #

@@ -236,6 +236,89 @@ def test_no_handle_available_when_everyone_is_red() -> None:
 # ---------------------------------------------------------------------- #
 
 
+def test_strict_policy_refuses_substitution_when_pin_unhealthy() -> None:
+    """`unavailability_policy=strict` should NOT fall through Layer 1."""
+    defaults = RoutingDefaults(
+        fitness={"@claude-opus": {"proposer": 3}, "@gemini-pro": {"proposer": 2}},
+        cost={"@claude-opus": 5, "@gemini-pro": 3},
+    )
+    participants = [
+        _participant("@claude-opus", health="red"),  # the pin
+        _participant("@gemini-pro"),  # would substitute under default policy
+    ]
+    delib = _delib(DeliberationRoles(proposer="@claude-opus"))
+    config = WorkspaceConfig(unavailability_policy="strict")
+    with pytest.raises(NoHandleAvailableError) as exc:
+        route(
+            role="proposer",
+            deliberation=delib,
+            participants=participants,
+            config=config,
+            defaults=defaults,
+        )
+    assert any("policy: strict" in (a.rejected_because or "") for a in exc.value.alternatives)
+
+
+def test_strict_policy_refuses_substitution_for_workspace_override() -> None:
+    defaults = RoutingDefaults(
+        fitness={"@claude-opus": {"reviewer": 3}, "@gemini-pro": {"reviewer": 3}},
+        cost={"@claude-opus": 5, "@gemini-pro": 3},
+    )
+    participants = [
+        _participant("@claude-opus", health="red"),
+        _participant("@gemini-pro"),
+    ]
+    config = WorkspaceConfig(
+        routing_overrides={"reviewer": "@claude-opus"},
+        unavailability_policy="strict",
+    )
+    with pytest.raises(NoHandleAvailableError):
+        route(
+            role="reviewer",
+            deliberation=_delib(),
+            participants=participants,
+            config=config,
+            defaults=defaults,
+        )
+
+
+def test_substitute_policy_falls_through_when_pin_unhealthy() -> None:
+    """Default `substitute` should still pick the best replacement."""
+    defaults = RoutingDefaults(
+        fitness={"@claude-opus": {"proposer": 3}, "@gemini-pro": {"proposer": 2}},
+        cost={"@claude-opus": 5, "@gemini-pro": 3},
+    )
+    participants = [
+        _participant("@claude-opus", health="red"),
+        _participant("@gemini-pro"),
+    ]
+    delib = _delib(DeliberationRoles(proposer="@claude-opus"))
+    config = WorkspaceConfig()  # default substitute
+    decision = route(
+        role="proposer",
+        deliberation=delib,
+        participants=participants,
+        config=config,
+        defaults=defaults,
+    )
+    assert decision.handle == "@gemini-pro"
+
+
+def test_strict_policy_blocks_layer4_fallback() -> None:
+    """Strict refuses unrated fallback even when Layer 3 yields nothing."""
+    defaults = RoutingDefaults(fitness={}, cost={"@claude-opus": 5})
+    participants = [_participant("@claude-opus")]
+    config = WorkspaceConfig(unavailability_policy="strict")
+    with pytest.raises(NoHandleAvailableError):
+        route(
+            role="some-untracked-role",
+            deliberation=_delib(),
+            participants=participants,
+            config=config,
+            defaults=defaults,
+        )
+
+
 def test_inheritance_resolves_to_canonical_fitness() -> None:
     defaults = RoutingDefaults(
         fitness={"@claude-opus": {"synthesizer": 3, "proposer": 3}},

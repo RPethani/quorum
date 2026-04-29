@@ -541,11 +541,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
     config = load_workspace_config(paths.config_yaml)
     defaults = load_routing_defaults(paths.routing_defaults)
     idle_ticks = 0
-    # Skip-list of (deliberation_id, role, move_type) tuples that already
-    # failed during this run so a single bad agent does not loop forever.
-    # The loop's no-progress stop condition (design-doc §10) is the
-    # higher-quality answer; this is the v1 minimum.
-    failed_keys: set[tuple[str, str, str]] = set()
+    # No-progress stop (design-doc §10):
+    # if two consecutive ticks both run invocations and neither
+    # appended a move, the loop has stalled — bail rather than burn
+    # cost on a flapping retry. We additionally short-circuit when
+    # routing has nothing runnable AND nothing changed since the
+    # previous tick (the manual-pending / blocked check).
+    no_progress_streak = 0
+    no_progress_limit = 2
 
     while not stop["flag"]:
         if config.cost_enforce:
@@ -559,15 +562,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 break
 
         result = plan(paths)
-        runnable = tuple(
-            i
-            for i in result.runnable()
-            if (i.deliberation.id, i.role, i.move_type) not in failed_keys
-        )
+        runnable = tuple(result.runnable())
         if not runnable:
-            if result.manual() or result.blocked or failed_keys:
-                # Either humans owe us a move, routing is blocked, or
-                # we've already exhausted retries on every runnable role.
+            if result.manual() or result.blocked:
+                # Humans owe us a move, or routing is blocked. Bail.
                 break
             idle_ticks += 1
             if args.max_ticks and idle_ticks >= args.max_ticks:
@@ -599,9 +597,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
         invocation_results = run_items_sync(
             runnable, paths=paths, events=events, mode=state.mode.value
         )
-        for item, ir in zip(runnable, invocation_results, strict=True):
-            if ir.status != "ok":
-                failed_keys.add((item.deliberation.id, item.role, item.move_type))
+        appended_this_tick = any(ir.appended for ir in invocation_results)
+        if appended_this_tick:
+            no_progress_streak = 0
+        else:
+            no_progress_streak += 1
+            if no_progress_streak >= no_progress_limit:
+                if not getattr(args, "detached", False):
+                    print(
+                        f"no-progress stop: {no_progress_limit} consecutive ticks "
+                        "appended no moves. Pausing."
+                    )
+                break
 
     _transition_to(paths, WorkspaceState.PAUSED)
     if getattr(args, "detached", False):
