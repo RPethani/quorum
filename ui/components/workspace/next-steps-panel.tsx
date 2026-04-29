@@ -5,12 +5,13 @@ import type { NextAction } from "@/lib/api/conductor";
 import { AlertTriangle, ChevronDown, Copy, Lightbulb } from "lucide-react";
 import { useState } from "react";
 
-type DialogId = "setup" | "settings" | "add-agent";
+type DialogId = "setup" | "settings" | "add-agent" | "context";
 
 const DIALOG_LABELS: Record<DialogId, string> = {
   setup: "Setup",
   settings: "Settings",
   "add-agent": "Add agent",
+  context: "Context",
 };
 
 /**

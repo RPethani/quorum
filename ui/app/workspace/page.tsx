@@ -2,6 +2,7 @@
 
 import { ThemeToggle } from "@/components/design-system/theme-toggle";
 import { AddAgentDialog } from "@/components/dialogs/add-agent-dialog";
+import { ContextDialog } from "@/components/dialogs/context-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { SetupDialog } from "@/components/dialogs/setup-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +33,16 @@ import {
   getState,
   subscribeStream,
 } from "@/lib/api/conductor";
-import { ChevronRight, Loader2, Plus, RefreshCw, RotateCw, Settings2, Wand2 } from "lucide-react";
+import {
+  BookOpen,
+  ChevronRight,
+  Loader2,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Settings2,
+  Wand2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
@@ -64,6 +74,8 @@ export default function WorkspacePage() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addAgentOpen, setAddAgentOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
 
   const refresh = useCallback(async () => {
@@ -86,6 +98,10 @@ export default function WorkspacePage() {
       setEvents(ev.events);
       setInboxes(ib);
       setNextActions(na);
+      // The Setup wizard is only useful for first-time scaffold; once
+      // the conductor stops nagging us with run-setup we hide the
+      // header button so re-clicking doesn't reset answers.
+      setSetupNeeded(na.some((a) => a.id === "run-setup"));
       const next = selectedId ?? ds[0]?.id ?? null;
       if (next !== selectedId) setSelectedId(next);
       if (next) {
@@ -170,6 +186,8 @@ export default function WorkspacePage() {
         onRefresh={refresh}
         onOpenSetup={() => setSetupOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenContext={() => setContextOpen(true)}
+        showSetup={setupNeeded ?? false}
         yourTurnPending={yourTurn?.pending_count ?? 0}
         activeCount={activeMarkers.length}
         streamConnected={streamConnected}
@@ -185,6 +203,7 @@ export default function WorkspacePage() {
           if (id === "setup") setSetupOpen(true);
           else if (id === "settings") setSettingsOpen(true);
           else if (id === "add-agent") setAddAgentOpen(true);
+          else if (id === "context") setContextOpen(true);
         }}
       />
       <div className="flex flex-1 min-h-0">
@@ -305,6 +324,7 @@ export default function WorkspacePage() {
         onClose={() => setAddAgentOpen(false)}
         onAdded={() => void refresh()}
       />
+      <ContextDialog open={contextOpen} onClose={() => setContextOpen(false)} />
     </div>
   );
 }
@@ -315,6 +335,8 @@ function Header({
   onRefresh,
   onOpenSetup,
   onOpenSettings,
+  onOpenContext,
+  showSetup,
   yourTurnPending,
   activeCount,
   streamConnected,
@@ -324,6 +346,8 @@ function Header({
   onRefresh: () => void;
   onOpenSetup: () => void;
   onOpenSettings: () => void;
+  onOpenContext: () => void;
+  showSetup: boolean;
   yourTurnPending: number;
   activeCount: number;
   streamConnected: boolean;
@@ -363,8 +387,13 @@ function Header({
         {yourTurnPending > 0 ? (
           <Badge variant="warning">{yourTurnPending} pending for you</Badge>
         ) : null}
-        <Button variant="outline" size="sm" onClick={onOpenSetup} title="Open setup">
-          <Wand2 size={14} /> Setup
+        {showSetup ? (
+          <Button variant="outline" size="sm" onClick={onOpenSetup} title="Run first-time setup">
+            <Wand2 size={14} /> Setup
+          </Button>
+        ) : null}
+        <Button variant="outline" size="sm" onClick={onOpenContext} title="Manage context">
+          <BookOpen size={14} /> Context
         </Button>
         <Button variant="outline" size="sm" onClick={onOpenSettings} title="Open settings">
           <Settings2 size={14} /> Settings

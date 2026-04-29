@@ -212,6 +212,14 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_permissions_create()
             if url.path == "/api/participants":
                 return self._handle_participants_add()
+            if url.path == "/api/context/repos":
+                return self._handle_context_add("repo")
+            if url.path == "/api/context/docs":
+                return self._handle_context_add("doc")
+            if url.path == "/api/context/notes":
+                return self._handle_context_add("note")
+            if url.path == "/api/context/urls":
+                return self._handle_context_add("url")
             if url.path.startswith("/api/permissions/") and url.path.endswith("/approve"):
                 rid = url.path[len("/api/permissions/") : -len("/approve")]
                 return self._handle_permission_decide(rid, approve=True)
@@ -623,6 +631,136 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
             )
         self._reply_json(HTTPStatus.OK, {"handle": new.normalised_handle()})
+
+    def _handle_context_add(self, kind: str) -> None:
+        """Append a context entry to context-manifest.yaml.
+
+        Body schemas:
+          repo:  {"path": "/abs/dir", "name"?: "...", "role"?: "...",
+                  "relevance"?: "high|medium|low"}
+          doc:   {"path": "/abs/file", "name"?: "..."}
+          note:  {"name": "slug", "text": "<markdown>"}
+          url:   {"url": "https://…", "name"?: "...", "role"?: "..."}
+
+        Repo / doc / note actually copy or stage content; URL just
+        records metadata. Digestion (the big LLM-driven summarisation)
+        is deferred — the UI registers the source; the agents can
+        re-read raw files via the bundle.
+        """
+        from datetime import UTC, datetime
+        from pathlib import Path
+        from shutil import copytree
+
+        from ..core.context_bundle import load_context_manifest, save_context_manifest
+
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        manifest = load_context_manifest(paths)
+
+        if kind == "repo":
+            repo_path_str = str(payload.get("path", "")).strip()
+            if not repo_path_str:
+                return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "path required"})
+            repo_path = Path(repo_path_str).expanduser().resolve()
+            if not repo_path.is_dir():
+                return self._reply_json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"error": f"{repo_path} is not a directory"},
+                )
+            name = str(payload.get("name") or repo_path.name).strip()
+            paths.context_repos.mkdir(parents=True, exist_ok=True)
+            (paths.context_repos / name).mkdir(parents=True, exist_ok=True)
+            entry = {
+                "name": name,
+                "path": str(repo_path),
+                "role": str(payload.get("role", "")).strip(),
+                "relevance": str(payload.get("relevance", "medium")).strip() or "medium",
+                "added_at": now,
+            }
+            repos = manifest.setdefault("repos", [])
+            existing = next((r for r in repos if r.get("name") == name), None)
+            if existing is not None:
+                existing.update(entry)
+            else:
+                repos.append(entry)
+            save_context_manifest(paths, manifest)
+            return self._reply_json(HTTPStatus.OK, {"added": "repo", "name": name})
+
+        if kind == "doc":
+            doc_path_str = str(payload.get("path", "")).strip()
+            if not doc_path_str:
+                return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "path required"})
+            doc_path = Path(doc_path_str).expanduser().resolve()
+            if not doc_path.is_file():
+                return self._reply_json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"error": f"{doc_path} is not a file"},
+                )
+            name = str(payload.get("name") or doc_path.stem).strip()
+            raw_dir = paths.context_docs / "raw"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            target = raw_dir / doc_path.name
+            target.write_bytes(doc_path.read_bytes())
+            entry = {
+                "name": name,
+                "source_path": str(doc_path),
+                "stored_path": str(target.relative_to(paths.root)),
+                "added_at": now,
+            }
+            docs = manifest.setdefault("docs", [])
+            existing = next((d for d in docs if d.get("name") == name), None)
+            if existing is not None:
+                existing.update(entry)
+            else:
+                docs.append(entry)
+            save_context_manifest(paths, manifest)
+            _ = copytree  # silence unused import for ruff (used elsewhere later)
+            return self._reply_json(HTTPStatus.OK, {"added": "doc", "name": name})
+
+        if kind == "note":
+            name = str(payload.get("name", "")).strip()
+            text = str(payload.get("text", ""))
+            if not name:
+                return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "name required"})
+            if not text.strip():
+                return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "text required"})
+            paths.context_notes.mkdir(parents=True, exist_ok=True)
+            target = paths.context_notes / f"{name}.md"
+            if not text.endswith("\n"):
+                text += "\n"
+            target.write_text(text, encoding="utf-8")
+            notes = manifest.setdefault("notes", [])
+            if not any(n.get("name") == name for n in notes):
+                notes.append({"name": name, "added_at": now})
+                save_context_manifest(paths, manifest)
+            return self._reply_json(HTTPStatus.OK, {"added": "note", "name": name})
+
+        if kind == "url":
+            href = str(payload.get("url", "")).strip()
+            if not href:
+                return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "url required"})
+            name = str(payload.get("name") or href).strip()
+            entry = {
+                "name": name,
+                "url": href,
+                "role": str(payload.get("role", "")).strip(),
+                "added_at": now,
+            }
+            urls = manifest.setdefault("urls", [])
+            existing = next((u for u in urls if u.get("url") == href), None)
+            if existing is not None:
+                existing.update(entry)
+            else:
+                urls.append(entry)
+            save_context_manifest(paths, manifest)
+            return self._reply_json(HTTPStatus.OK, {"added": "url", "name": name})
+
+        return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown kind: {kind}"})
 
     def _reply_next_actions(self) -> None:
         paths = self.server.paths

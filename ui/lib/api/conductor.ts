@@ -292,6 +292,54 @@ export type AddAgentPayload = {
   quota_per_deliberation?: number;
 };
 
+export async function addContextRepo(payload: {
+  path: string;
+  name?: string;
+  role?: string;
+  relevance?: string;
+}): Promise<{ name: string }> {
+  return contextPost("repos", payload);
+}
+
+export async function addContextDoc(payload: {
+  path: string;
+  name?: string;
+}): Promise<{ name: string }> {
+  return contextPost("docs", payload);
+}
+
+export async function addContextNote(payload: {
+  name: string;
+  text: string;
+}): Promise<{ name: string }> {
+  return contextPost("notes", payload);
+}
+
+export async function addContextUrl(payload: {
+  url: string;
+  name?: string;
+  role?: string;
+}): Promise<{ name: string }> {
+  return contextPost("urls", payload);
+}
+
+async function contextPost(
+  kind: "repos" | "docs" | "notes" | "urls",
+  payload: Record<string, unknown>,
+): Promise<{ name: string }> {
+  const res = await fetchOrFriendlyError(`${base()}/api/context/${kind}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Add ${kind.slice(0, -1)} failed: ${res.status}`);
+  }
+  return (await res.json()) as { name: string };
+}
+
 export async function addAgent(payload: AddAgentPayload): Promise<{ handle: string }> {
   const res = await fetchOrFriendlyError(`${base()}/api/participants`, {
     method: "POST",

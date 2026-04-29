@@ -168,15 +168,15 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
         actions.append(
             NextAction(
                 id="add-context",
-                title="Add a repo or document for grounding",
+                title="Add a repo, doc, note, or URL for grounding",
                 description=(
-                    "Agents read everything registered under `context/`. Add a repo "
-                    "with `quorum context add-repo <path>` or a doc with "
-                    "`quorum context add-doc <path>`."
+                    "Agents read everything you register here. Open the Context "
+                    "panel to attach a local repo, paste a problem statement, or "
+                    "drop reference URLs."
                 ),
-                kind="cli",
+                kind="dialog",
                 severity="suggested",
-                payload="quorum context add-repo .",
+                payload="context",
             )
         )
 
