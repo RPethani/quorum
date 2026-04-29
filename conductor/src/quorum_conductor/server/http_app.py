@@ -24,6 +24,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -491,6 +492,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
             repo["digested"] = bool(
                 name and (paths.context_repos / name / "digest.md").is_file()
             )
+            meta_path = paths.context_repos / name / "meta.yaml"
+            repo["last_digested_at"] = _read_yaml_field(meta_path, "last_digested_at")
         for doc in manifest.get("docs") or []:
             if not isinstance(doc, dict):
                 continue
@@ -803,6 +806,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 "path": str(repo_path),
                 "role": str(payload.get("role", "")).strip(),
                 "relevance": str(payload.get("relevance", "medium")).strip() or "medium",
+                "digester": str(payload.get("digester", "")).strip() or None,
                 "added_at": now,
             }
             repos = manifest.setdefault("repos", [])
@@ -852,6 +856,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 "stored_path": str(target.relative_to(paths.root)),
                 "tokens_estimated": extracted.tokens_estimated,
                 "needs_digest": needs_digest,
+                "digester": str(payload.get("digester", "")).strip() or None,
                 "added_at": now,
             }
             docs = manifest.setdefault("docs", [])
@@ -1453,6 +1458,21 @@ class QuorumHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------- #
 # Helpers (pure)
 # ---------------------------------------------------------------------- #
+
+
+def _read_yaml_field(path: Path, key: str) -> Any:
+    """Best-effort read of a single top-level field from a YAML file."""
+    if not path.is_file():
+        return None
+    try:
+        import yaml as _yaml
+
+        data = _yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    if isinstance(data, dict):
+        return data.get(key)
+    return None
 
 
 def _slugify(value: str) -> str:

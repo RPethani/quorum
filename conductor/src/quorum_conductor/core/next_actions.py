@@ -192,6 +192,28 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
             )
         )
 
+    # 4b. Pending permission requests block whichever invocation
+    # asked for them. Surface as blocking until the user decides.
+    pending_perms = _pending_permission_count(paths)
+    if pending_perms > 0:
+        actions.append(
+            NextAction(
+                id="permissions-pending",
+                title=(
+                    f"{pending_perms} permission "
+                    f"request{'s' if pending_perms != 1 else ''} waiting on you"
+                ),
+                description=(
+                    "An agent asked to run a tool outside its allowlist. Open the "
+                    "Permissions panel to approve or deny."
+                ),
+                kind="dialog",
+                severity="blocking",
+                payload="permissions",
+                primary=not actions,
+            )
+        )
+
     # 5. Always-available: add context to ground the agents.
     if cli_count > 0 and not _has_context(paths):
         actions.append(
@@ -287,6 +309,15 @@ def _count_human_pending(paths: WorkspacePaths) -> list[str]:
         for line in inbox_file.read_text(encoding="utf-8").splitlines()
         if line.strip().startswith("- pending:")
     ]
+
+
+def _pending_permission_count(paths: WorkspacePaths) -> int:
+    from .permissions import list_requests
+
+    try:
+        return sum(1 for r in list_requests(paths) if r.status.value == "pending")
+    except Exception:
+        return 0
 
 
 def _undigested_counts(paths: WorkspacePaths) -> tuple[int, int]:

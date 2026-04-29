@@ -297,6 +297,7 @@ export async function addContextRepo(payload: {
   name?: string;
   role?: string;
   relevance?: string;
+  digester?: string;
 }): Promise<{ name: string }> {
   return contextPost("repos", payload);
 }
@@ -304,6 +305,7 @@ export async function addContextRepo(payload: {
 export async function addContextDoc(payload: {
   path: string;
   name?: string;
+  digester?: string;
 }): Promise<{ name: string }> {
   return contextPost("docs", payload);
 }
@@ -374,6 +376,45 @@ export async function removeContextItem(
     throw new Error(body.error || `Remove failed: ${res.status}`);
   }
   return (await res.json()) as { removed: string; name: string };
+}
+
+export type PermissionRequestRow = {
+  id: string;
+  handle: string;
+  deliberation_id: string;
+  tool: string;
+  operation: string;
+  rationale: string;
+  stakes: "trivial" | "tactical" | "strategic" | "irreversible";
+  status: "pending" | "approved" | "denied" | "auto_approved";
+  requested_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  decision_reason: string | null;
+};
+
+export async function getPermissions(): Promise<PermissionRequestRow[]> {
+  const body = await getJSON<{ requests: PermissionRequestRow[] }>("/api/permissions");
+  return body.requests;
+}
+
+export async function decidePermission(
+  id: string,
+  approve: boolean,
+  reason?: string,
+): Promise<PermissionRequestRow> {
+  const action = approve ? "approve" : "deny";
+  const res = await fetchOrFriendlyError(`${base()}/api/permissions/${id}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...(reason ? { reason } : {}) }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `${action} failed: ${res.status}`);
+  }
+  return (await res.json()) as PermissionRequestRow;
 }
 
 export async function refreshUrl(name: string): Promise<{ refreshed: string }> {

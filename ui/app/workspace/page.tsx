@@ -4,6 +4,7 @@ import { ThemeToggle } from "@/components/design-system/theme-toggle";
 import { AddAgentDialog } from "@/components/dialogs/add-agent-dialog";
 import { ContextDialog } from "@/components/dialogs/context-dialog";
 import { DigestionDialog } from "@/components/dialogs/digestion-dialog";
+import { PermissionsDialog } from "@/components/dialogs/permissions-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { SetupDialog } from "@/components/dialogs/setup-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,7 @@ import {
 import {
   BookOpen,
   ChevronRight,
+  KeyRound,
   Loader2,
   Plus,
   RefreshCw,
@@ -78,6 +80,7 @@ export default function WorkspacePage() {
   const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [digestionOpen, setDigestionOpen] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
   const [digestionInFlight, setDigestionInFlight] = useState(0);
@@ -229,6 +232,7 @@ export default function WorkspacePage() {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenContext={() => setContextOpen(true)}
         onOpenDigestion={() => setDigestionOpen(true)}
+        onOpenPermissions={() => setPermissionsOpen(true)}
         showSetup={setupNeeded ?? false}
         yourTurnPending={yourTurn?.pending_count ?? 0}
         activeCount={activeMarkers.length}
@@ -248,6 +252,7 @@ export default function WorkspacePage() {
           else if (id === "add-agent") setAddAgentOpen(true);
           else if (id === "context") setContextOpen(true);
           else if (id === "digestion") setDigestionOpen(true);
+          else if (id === "permissions") setPermissionsOpen(true);
         }}
       />
       <div className="flex flex-1 min-h-0">
@@ -370,6 +375,7 @@ export default function WorkspacePage() {
       />
       <ContextDialog open={contextOpen} onClose={() => setContextOpen(false)} />
       <DigestionDialog open={digestionOpen} onClose={() => setDigestionOpen(false)} />
+      <PermissionsDialog open={permissionsOpen} onClose={() => setPermissionsOpen(false)} />
     </div>
   );
 }
@@ -382,6 +388,7 @@ function Header({
   onOpenSettings,
   onOpenContext,
   onOpenDigestion,
+  onOpenPermissions,
   showSetup,
   yourTurnPending,
   activeCount,
@@ -395,6 +402,7 @@ function Header({
   onOpenSettings: () => void;
   onOpenContext: () => void;
   onOpenDigestion: () => void;
+  onOpenPermissions: () => void;
   showSetup: boolean;
   yourTurnPending: number;
   activeCount: number;
@@ -454,6 +462,14 @@ function Header({
         ) : null}
         <Button variant="outline" size="sm" onClick={onOpenContext} title="Manage context">
           <BookOpen size={14} /> Context
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onOpenPermissions}
+          title="Pending permission requests"
+        >
+          <KeyRound size={14} /> Permissions
         </Button>
         <Button variant="outline" size="sm" onClick={onOpenSettings} title="Open settings">
           <Settings2 size={14} /> Settings

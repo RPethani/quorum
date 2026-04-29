@@ -12,6 +12,7 @@ import {
   addContextRepo,
   addContextUrl,
   getContextManifest,
+  getParticipants,
   getRawFile,
   refreshUrl,
   removeContextItem,
@@ -70,11 +71,19 @@ export function ContextDialog({
             fields={["path", "relevance"]}
             kind="repos"
             onRemoved={refresh}
-            badgeFor={(it) =>
-              it.digested
-                ? { label: "digested", tone: "success" }
-                : { label: "needs digest", tone: "warning" }
-            }
+            badgesFor={(it) => {
+              const out: Array<{ label: string; tone: Tone }> = [];
+              out.push(
+                it.digested
+                  ? { label: "digested", tone: "success" }
+                  : { label: "needs digest", tone: "warning" },
+              );
+              if (it.digested) {
+                const fresh = freshnessBadge(it.last_digested_at as string | undefined);
+                if (fresh) out.push(fresh);
+              }
+              return out;
+            }}
           />
           <AddRepoForm onAdded={refresh} />
         </TabsContent>
@@ -85,13 +94,15 @@ export function ContextDialog({
             fields={["source_path", "tokens_estimated"]}
             kind="docs"
             onRemoved={refresh}
-            badgeFor={(it) => {
+            badgesFor={(it) => {
               if (it.needs_digest) {
-                return it.digested
-                  ? { label: "digested", tone: "success" }
-                  : { label: "needs digest", tone: "warning" };
+                return [
+                  it.digested
+                    ? { label: "digested", tone: "success" }
+                    : { label: "needs digest", tone: "warning" },
+                ];
               }
-              return { label: "ready (raw)", tone: "neutral" };
+              return [{ label: "ready (raw)", tone: "neutral" }];
             }}
           />
           <AddDocForm onAdded={refresh} />
@@ -194,18 +205,35 @@ const TONE_CLASSES: Record<Tone, string> = {
   neutral: "bg-recessed text-fg-tertiary border border-border-default",
 };
 
+/**
+ * Freshness colour per design-doc §1.8: green <7 days, yellow <30 days,
+ * red older. Returns null when there's no timestamp to evaluate.
+ */
+function freshnessBadge(iso: string | null | undefined): {
+  label: string;
+  tone: Tone;
+} | null {
+  if (!iso) return null;
+  const ts = Date.parse(String(iso));
+  if (Number.isNaN(ts)) return null;
+  const days = (Date.now() - ts) / (1000 * 60 * 60 * 24);
+  if (days < 7) return { label: `fresh (${Math.max(0, Math.round(days))}d)`, tone: "success" };
+  if (days < 30) return { label: `${Math.round(days)}d old`, tone: "warning" };
+  return { label: `${Math.round(days)}d old`, tone: "danger" };
+}
+
 function ItemList({
   items,
   fields,
   kind,
   onRemoved,
-  badgeFor,
+  badgesFor,
 }: {
   items: Array<Record<string, unknown>>;
   fields: string[];
   kind: "repos" | "docs" | "notes";
   onRemoved: () => void;
-  badgeFor?: (it: Record<string, unknown>) => { label: string; tone: Tone } | null;
+  badgesFor?: (it: Record<string, unknown>) => Array<{ label: string; tone: Tone }> | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -230,19 +258,16 @@ function ItemList({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium truncate">{name || "(unnamed)"}</span>
-                  {(() => {
-                    const badge = badgeFor?.(it);
-                    if (!badge) return null;
-                    return (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
-                          TONE_CLASSES[badge.tone]
-                        }`}
-                      >
-                        {badge.label}
-                      </span>
-                    );
-                  })()}
+                  {(badgesFor?.(it) ?? []).map((b) => (
+                    <span
+                      key={b.label}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+                        TONE_CLASSES[b.tone]
+                      }`}
+                    >
+                      {b.label}
+                    </span>
+                  ))}
                 </div>
                 <div className="mt-0.5 grid grid-cols-1 gap-x-4 gap-y-0.5 text-xs text-fg-tertiary md:grid-cols-3">
                   {fields
@@ -327,6 +352,21 @@ function UrlList({
                   >
                     {cached ? "cached" : "needs fetch"}
                   </span>
+                  {cached
+                    ? (() => {
+                        const fresh = freshnessBadge(u.fetched_at as string | undefined);
+                        if (!fresh) return null;
+                        return (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+                              TONE_CLASSES[fresh.tone]
+                            }`}
+                          >
+                            {fresh.label}
+                          </span>
+                        );
+                      })()
+                    : null}
                 </div>
                 <div className="mt-0.5 text-xs text-fg-tertiary truncate">
                   <a
@@ -403,14 +443,32 @@ function UrlList({
 // Add forms — minimal, one per tab
 // ---------------------------------------------------------------------- //
 
+function useCliHandles(): string[] {
+  const [handles, setHandles] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void getParticipants()
+      .then((rows) => {
+        if (alive) setHandles(rows.filter((p) => p.transport === "cli").map((p) => p.handle));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return handles;
+}
+
 function AddRepoForm({ onAdded }: { onAdded: () => void }) {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [relevance, setRelevance] = useState("medium");
+  const [digester, setDigester] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const cliHandles = useCliHandles();
   return (
     <AddBox>
       <Field label="Repo path" hint="Browse to pick a folder, or paste an absolute path.">
@@ -436,7 +494,7 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
       <Field label="Name" hint="Optional. Defaults to the directory name.">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="myrepo" />
       </Field>
-      <Field label="Relevance" hint="Drives which model digests it later.">
+      <Field label="Relevance" hint="Drives the proposed digester model.">
         <select
           value={relevance}
           onChange={(e) => setRelevance(e.target.value)}
@@ -445,6 +503,23 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
           <option value="high">high</option>
           <option value="medium">medium</option>
           <option value="low">low</option>
+        </select>
+      </Field>
+      <Field
+        label="Digester"
+        hint="Pick a specific agent to summarise this repo, or use the relevance default."
+      >
+        <select
+          value={digester}
+          onChange={(e) => setDigester(e.target.value)}
+          className="h-9 w-full rounded-sm border border-border-default bg-elevated px-3 text-sm"
+        >
+          <option value="">Use {relevance}-relevance default</option>
+          {cliHandles.map((h) => (
+            <option key={h} value={h}>
+              {h}
+            </option>
+          ))}
         </select>
       </Field>
       {err ? <p className="text-sm text-accent-danger">{err}</p> : null}
@@ -461,6 +536,7 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
                 path: path.trim(),
                 name: name.trim(),
                 relevance,
+                ...(digester ? { digester } : {}),
               });
               setLastAdded(res.name);
               setPath("");
@@ -494,10 +570,12 @@ function AddRepoForm({ onAdded }: { onAdded: () => void }) {
 function AddDocForm({ onAdded }: { onAdded: () => void }) {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
+  const [digester, setDigester] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const cliHandles = useCliHandles();
   return (
     <AddBox>
       <Field
@@ -526,6 +604,20 @@ function AddDocForm({ onAdded }: { onAdded: () => void }) {
       <Field label="Name" hint="Optional. Defaults to the file stem.">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="feature" />
       </Field>
+      <Field label="Digester" hint="Used only for large docs (>5K tokens). Smaller docs go in raw.">
+        <select
+          value={digester}
+          onChange={(e) => setDigester(e.target.value)}
+          className="h-9 w-full rounded-sm border border-border-default bg-elevated px-3 text-sm"
+        >
+          <option value="">Use medium-relevance default</option>
+          {cliHandles.map((h) => (
+            <option key={h} value={h}>
+              {h}
+            </option>
+          ))}
+        </select>
+      </Field>
       {err ? <p className="text-sm text-accent-danger">{err}</p> : null}
       <FormStatus lastAdded={lastAdded} kind="doc" />
       <DialogFooter>
@@ -536,7 +628,11 @@ function AddDocForm({ onAdded }: { onAdded: () => void }) {
             setBusy(true);
             setErr(null);
             try {
-              const res = await addContextDoc({ path: path.trim(), name: name.trim() });
+              const res = await addContextDoc({
+                path: path.trim(),
+                name: name.trim(),
+                ...(digester ? { digester } : {}),
+              });
               setLastAdded(res.name);
               setPath("");
               setName("");

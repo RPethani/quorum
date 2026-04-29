@@ -99,26 +99,26 @@ def list_states(paths: WorkspacePaths) -> list[RepoDigestionState]:
     for repo in _registered_repos(paths):
         name = str(repo.get("name", "")).strip()
         relevance = str(repo.get("relevance", "medium")).strip() or "medium"
+        per_source = str(repo.get("digester") or "").strip() or None
         if not name:
             continue
         key = ("repo", name)
+        proposed = per_source or _propose_digester(
+            relevance, digester_defaults, participants
+        )
         with _LOCK:
             state = store.repos.get(_key(key))
             if state is None:
                 state = RepoDigestionState(
                     name=name,
                     relevance=relevance,
-                    proposed_digester=_propose_digester(
-                        relevance, digester_defaults, participants
-                    ),
+                    proposed_digester=proposed,
                     kind="repo",
                 )
                 store.repos[_key(key)] = state
             else:
                 state.relevance = relevance
-                state.proposed_digester = _propose_digester(
-                    relevance, digester_defaults, participants
-                )
+                state.proposed_digester = proposed
                 state.kind = "repo"
         digest_path = paths.context_repos / name / "digest.md"
         meta_path = paths.context_repos / name / "meta.yaml"
@@ -137,24 +137,24 @@ def list_states(paths: WorkspacePaths) -> list[RepoDigestionState]:
         if not name or not bool(doc.get("needs_digest")):
             continue
         relevance = str(doc.get("relevance", "medium")).strip() or "medium"
+        per_source = str(doc.get("digester") or "").strip() or None
         key = ("doc", name)
+        proposed = per_source or _propose_digester(
+            relevance, digester_defaults, participants
+        )
         with _LOCK:
             state = store.repos.get(_key(key))
             if state is None:
                 state = RepoDigestionState(
                     name=name,
                     relevance=relevance,
-                    proposed_digester=_propose_digester(
-                        relevance, digester_defaults, participants
-                    ),
+                    proposed_digester=proposed,
                     kind="doc",
                 )
                 store.repos[_key(key)] = state
             else:
                 state.relevance = relevance
-                state.proposed_digester = _propose_digester(
-                    relevance, digester_defaults, participants
-                )
+                state.proposed_digester = proposed
                 state.kind = "doc"
         digested_path = paths.context_docs / "digested" / f"{name}.md"
         state.digest_exists = digested_path.is_file()
