@@ -150,7 +150,7 @@ Build a standalone Python prototype wrapping a single CLI to validate the pipe p
 
 ---
 
-## Phase 12 — Standing prompt iteration (dedicated week) ⬜
+## Phase 12 — Standing prompt iteration (dedicated week) 🟡 (anti-gaming augmentation shipped; empirical iteration deferred — ADR-004)
 
 **Goal.** §14 step 13. Tune each prompt augmentation against gaming behavior:
 
