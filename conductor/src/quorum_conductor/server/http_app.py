@@ -970,9 +970,10 @@ class QuorumHandler(BaseHTTPRequestHandler):
         self._reply_json(HTTPStatus.OK, {"refreshed": slug_name})
 
     def _handle_digest_queue(self) -> None:
-        """Queue a background digestion run for one repo.
+        """Queue a background digestion run for one repo or doc.
 
-        Body: { "name": "<repo-name>", "digester"?: "@handle" }
+        Body: { "name": "<name>", "kind": "repo"|"doc" (default "repo"),
+                "digester"?: "@handle" }
         """
         from ..core.digestion_queue import queue_digest
 
@@ -984,12 +985,19 @@ class QuorumHandler(BaseHTTPRequestHandler):
         name = str(payload.get("name", "")).strip()
         if not name:
             return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "name required"})
+        kind_raw = str(payload.get("kind", "repo")).strip().lower() or "repo"
+        if kind_raw not in {"repo", "doc"}:
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": f"kind must be 'repo' or 'doc', got {kind_raw!r}"},
+            )
         digester = payload.get("digester")
         try:
             state = queue_digest(
                 paths,
                 name,
                 digester_handle=str(digester).strip() if digester else None,
+                kind=kind_raw,  # type: ignore[arg-type]
             )
         except ValueError as exc:
             return self._reply_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)})
