@@ -57,13 +57,30 @@ function BlockingList({
   blocking: NextAction[];
   onOpenDialog: (id: DialogId) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const eyebrow =
+    blocking.length === 1 ? "Action required" : `Action required · ${blocking.length}`;
   return (
     <BannerSection
       tone="warning"
-      eyebrow={blocking.length === 1 ? "Action required" : `Action required · ${blocking.length}`}
+      eyebrow={eyebrow}
       icon={<AlertTriangle size={11} strokeWidth={2.5} />}
-      items={blocking}
+      items={expanded ? blocking : []}
       onOpenDialog={onOpenDialog}
+      headerExtra={
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-accent-warning hover:opacity-80 transition-opacity"
+        >
+          {expanded ? "Hide" : blocking.length === 1 ? "Show" : `${blocking.length} items`}
+          <ChevronDown
+            size={10}
+            strokeWidth={2}
+            className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+        </button>
+      }
     />
   );
 }
