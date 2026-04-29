@@ -1013,7 +1013,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
             "  critics: []\n"
             "  synthesizer: null\n"
             f'  decider: "{decider}"\n'
-            f"tags: [{', '.join(tags)}]\n"
+            f"tags: [{', '.join(_yaml_quote(t) for t in tags)}]\n"
             "relevant_context:\n"
             "  repos: []\n"
             "  docs: []\n"
@@ -1741,6 +1741,14 @@ def _slugify(value: str) -> str:
     if not base:
         base = "url"
     return base[:48]
+
+
+def _yaml_quote(value: str) -> str:
+    """Double-quote a YAML scalar so flow-sequence tokens like `@handle`
+    parse cleanly. `@` and a few other characters are reserved/invalid as
+    plain-scalar starts in YAML 1.1 flow context."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _planner_human_pending(paths: WorkspacePaths) -> dict[str, int]:
