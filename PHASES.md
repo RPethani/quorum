@@ -174,7 +174,7 @@ This phase is heavy on real CLI invocations and costs real money. Watch the cost
 
 ---
 
-## Phase 14 — Polish, documentation, packaging ⬜
+## Phase 14 — Polish, documentation, packaging ✅
 
 **Goal.** Ship v1.
 
