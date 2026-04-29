@@ -42,11 +42,26 @@ from .workspace import (
     status_summary,
     unarchive_workspace,
 )
+from .workspace import services as _services
 from .workspace.archive import ArchiveError
 from .workspace.process import ProcessError, conductor_running, daemonize_run, stop_conductor
 from .workspace.scaffolding import ScaffoldingError
+from .workspace.services import (
+    SERVICE_NAMES,
+    ServiceError,
+    ServiceName,
+    ServiceStatus,
+)
 from .workspace.state import StateFileError
 from .workspace.status import render_status
+
+# Local aliases for the service helpers — keeps call-sites short without
+# colliding with the `quorum start` daemon helpers from `process.py`.
+services_status = _services.all_status
+service_start = _services.start
+service_stop = _services.stop
+service_restart = _services.restart
+service_tail_log = _services.tail_log
 
 # Default loop tick when running foreground.
 _LOOP_IDLE_SLEEP_S: float = 1.0
@@ -71,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         WorkspaceNotFoundError,
         NoHandleAvailableError,
         ProcessError,
+        ServiceError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -104,6 +120,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "Your handle for the workspace (e.g. @human-jane). "
             "Default: detected from $USER / git config / $QUORUM_HUMAN_HANDLE."
         ),
+    )
+    p_init.add_argument(
+        "--no-start",
+        action="store_true",
+        help="Don't auto-start the server + UI after scaffolding.",
     )
     p_init.set_defaults(handler=_cmd_init)
 
@@ -274,6 +295,65 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_path(p_ctx_list)
     p_ctx_list.set_defaults(handler=_cmd_context_list)
 
+    # up / down / restart / logs — manage detached services (HTTP API + UI).
+    p_up = sub.add_parser(
+        "up",
+        help="Start the conductor server and UI in the background (one-terminal mode).",
+    )
+    _add_path(p_up)
+    p_up.add_argument(
+        "--server-port", type=int, default=8500, help="HTTP API port (default 8500)."
+    )
+    p_up.add_argument(
+        "--ui-port", type=int, default=3000, help="UI dev-server port (default 3000)."
+    )
+    p_up.add_argument(
+        "--server-only", action="store_true", help="Start only the conductor server."
+    )
+    p_up.add_argument(
+        "--ui-only", action="store_true", help="Start only the UI."
+    )
+    p_up.set_defaults(handler=_cmd_up)
+
+    p_down = sub.add_parser("down", help="Stop the background server / UI.")
+    _add_path(p_down)
+    p_down.add_argument(
+        "service",
+        nargs="?",
+        choices=("server", "ui"),
+        default=None,
+        help="Which service to stop (default: both).",
+    )
+    p_down.set_defaults(handler=_cmd_down)
+
+    p_restart = sub.add_parser("restart", help="Restart the server / UI.")
+    _add_path(p_restart)
+    p_restart.add_argument(
+        "service",
+        nargs="?",
+        choices=("server", "ui"),
+        default=None,
+        help="Which service to restart (default: both).",
+    )
+    p_restart.set_defaults(handler=_cmd_restart)
+
+    p_logs = sub.add_parser("logs", help="Tail the server / UI log file.")
+    _add_path(p_logs)
+    p_logs.add_argument(
+        "service",
+        nargs="?",
+        choices=("server", "ui"),
+        default="server",
+        help="Which log to tail (default: server).",
+    )
+    p_logs.add_argument(
+        "-f", "--follow", action="store_true", help="Follow new lines as they appear."
+    )
+    p_logs.add_argument(
+        "-n", "--lines", type=int, default=80, help="Show the last N lines (default 80)."
+    )
+    p_logs.set_defaults(handler=_cmd_logs)
+
     return parser
 
 
@@ -302,12 +382,29 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print(f"initialised workspace at {paths.root}")
     print(f"mode    : {mode.value}")
     print(f"you     : {human_handle}")
+
+    if not args.no_start:
+        print()
+        print("starting services in the background…")
+        try:
+            server = service_start(paths, "server")
+            ui = service_start(paths, "ui")
+        except ServiceError as exc:
+            print(f"warning: could not auto-start services — {exc}", file=sys.stderr)
+        else:
+            print(f"  server  ● running   http://127.0.0.1:{server.port}   pid={server.pid}")
+            print(f"  ui      ● running   http://127.0.0.1:{ui.port}   pid={ui.pid}")
+            print()
+            print(f"open http://127.0.0.1:{ui.port} to finish setup.")
+            print("`quorum status` to inspect, `quorum down` to stop.")
+            return 0
+
     print()
     print("next steps:")
     print(f"  1. edit {_rel(paths.problem_statement)} with your problem statement")
     print(f"  2. add at least one cli handle to {_rel(paths.participants)}")
     print("  3. run `quorum doctor` to verify your handles")
-    print("  4. run `quorum start` to begin the conductor")
+    print("  4. run `quorum up` to start the server + UI")
     return 0
 
 
@@ -315,7 +412,21 @@ def _cmd_status(args: argparse.Namespace) -> int:
     paths = _resolve_workspace(args)
     summary = status_summary(paths)
     print(render_status(summary))
+    print()
+    print("services:")
+    for st in services_status(paths):
+        print("  " + _format_service_row(st))
     return 0
+
+
+def _format_service_row(st: ServiceStatus) -> str:
+    dot = {"running": "●", "stopped": "○", "crashed": "✗"}.get(st.state, "?")
+    if st.state == "running":
+        url = f"http://127.0.0.1:{st.port}" if st.port else "?"
+        return f"{st.name:<7} {dot} running   {url:<26} pid={st.pid}"
+    if st.state == "crashed":
+        return f"{st.name:<7} {dot} crashed   see {st.log_path}"
+    return f"{st.name:<7} {dot} stopped"
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
@@ -679,6 +790,91 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         print()
         print("server stopped.")
     return 0
+
+
+def _cmd_up(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    targets: list[ServiceName]
+    if args.server_only and args.ui_only:
+        print("error: --server-only and --ui-only are mutually exclusive.", file=sys.stderr)
+        return 1
+    if args.server_only:
+        targets = ["server"]
+    elif args.ui_only:
+        targets = ["ui"]
+    else:
+        targets = ["server", "ui"]
+
+    for name in targets:
+        st = service_start(
+            paths,
+            name,
+            server_port=args.server_port,
+            ui_port=args.ui_port,
+        )
+        url = f"http://127.0.0.1:{st.port}" if st.port else "?"
+        print(f"  {name:<7} ● running   {url:<26} pid={st.pid}")
+    if "ui" in targets:
+        print()
+        print("open the URL above to view the workspace.")
+    return 0
+
+
+def _cmd_down(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    targets: list[ServiceName] = (
+        [args.service] if args.service else list(SERVICE_NAMES)
+    )
+    any_stopped = False
+    for name in targets:
+        prior = service_stop(paths, name)
+        if prior is None:
+            print(f"  {name:<7} ○ already stopped")
+        else:
+            print(f"  {name:<7} ○ stopped (was pid {prior.pid})")
+            any_stopped = True
+    if not any_stopped:
+        return 0
+    return 0
+
+
+def _cmd_restart(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    targets: list[ServiceName] = (
+        [args.service] if args.service else list(SERVICE_NAMES)
+    )
+    for name in targets:
+        st = service_restart(paths, name)
+        url = f"http://127.0.0.1:{st.port}" if st.port else "?"
+        print(f"  {name:<7} ● running   {url:<26} pid={st.pid}")
+    return 0
+
+
+def _cmd_logs(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    name: ServiceName = args.service
+    text = service_tail_log(paths, name, n=args.lines)
+    if text:
+        print(text)
+    if not args.follow:
+        return 0
+
+    # Follow mode — naive but adequate for v1: poll the file.
+    log_path = _services.log_path_for(paths, name)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.touch(exist_ok=True)
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            f.seek(0, 2)  # seek to end
+            while True:
+                line = f.readline()
+                if line:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                else:
+                    time.sleep(0.25)
+    except KeyboardInterrupt:
+        return 0
 
 
 # ---------------------------------------------------------------------- #
