@@ -90,8 +90,8 @@
   --color-fg-primary: var(--color-neutral-50);
   --color-fg-secondary: var(--color-neutral-300);
   --color-fg-tertiary: var(--color-neutral-500);
-  --color-border-default: var(--color-neutral-800);
-  --color-border-emphasis: var(--color-neutral-700);
+  --color-border-default: var(--color-neutral-700);
+  --color-border-emphasis: var(--color-neutral-600);
 
   /* Shadows — barely visible in dark mode; rely on borders for separation */
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);

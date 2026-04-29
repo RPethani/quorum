@@ -26,6 +26,7 @@ import {
   type WorkspaceStateResponse,
   getDeliberation,
   getDeliberations,
+  getDigestions,
   getEvents,
   getInboxes,
   getManifest,
@@ -79,6 +80,7 @@ export default function WorkspacePage() {
   const [digestionOpen, setDigestionOpen] = useState(false);
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
+  const [digestionInFlight, setDigestionInFlight] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -125,6 +127,28 @@ export default function WorkspacePage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Lightweight digestion pulse — polls every 3s so we can flash a
+  // "Digesting N…" chip in the header even when the dialog is closed.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const rows = await getDigestions();
+        if (!alive) return;
+        const inFlight = rows.filter((r) => r.status === "queued" || r.status === "running").length;
+        setDigestionInFlight(inFlight);
+      } catch {
+        // network blip — leave the previous value
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 3000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
 
   // Phase-8 SSE subscription. EventSource keeps the connection alive
   // and pushes events_appended / active_changed / state_changed
@@ -189,9 +213,11 @@ export default function WorkspacePage() {
         onOpenSetup={() => setSetupOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenContext={() => setContextOpen(true)}
+        onOpenDigestion={() => setDigestionOpen(true)}
         showSetup={setupNeeded ?? false}
         yourTurnPending={yourTurn?.pending_count ?? 0}
         activeCount={activeMarkers.length}
+        digestionInFlight={digestionInFlight}
         streamConnected={streamConnected}
       />
       {error ? (
@@ -340,9 +366,11 @@ function Header({
   onOpenSetup,
   onOpenSettings,
   onOpenContext,
+  onOpenDigestion,
   showSetup,
   yourTurnPending,
   activeCount,
+  digestionInFlight,
   streamConnected,
 }: {
   state: WorkspaceStateResponse | null;
@@ -351,9 +379,11 @@ function Header({
   onOpenSetup: () => void;
   onOpenSettings: () => void;
   onOpenContext: () => void;
+  onOpenDigestion: () => void;
   showSetup: boolean;
   yourTurnPending: number;
   activeCount: number;
+  digestionInFlight: number;
   streamConnected: boolean;
 }) {
   const costPct = state ? Math.round((state.cost.fraction || 0) * 100) : 0;
@@ -379,6 +409,17 @@ function Header({
           <Badge variant="primary" className="composing-pulse">
             {activeCount} composing
           </Badge>
+        ) : null}
+        {digestionInFlight > 0 ? (
+          <button
+            type="button"
+            onClick={onOpenDigestion}
+            className="inline-flex items-center gap-1.5 rounded-full border border-accent-primary/40 bg-accent-primary-weak px-2.5 py-0.5 text-xs font-medium text-accent-primary hover:border-accent-primary transition-colors"
+            title="Open digestion panel"
+          >
+            <Loader2 size={12} className="animate-spin" />
+            Digesting {digestionInFlight}…
+          </button>
         ) : null}
       </div>
       <div className="flex items-center gap-2">
