@@ -21,7 +21,7 @@ export function ThemeToggle() {
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return <div className="h-8 w-[7.5rem]" aria-hidden />;
+    return <div className="h-8 w-[5.25rem]" aria-hidden />;
   }
 
   return (
@@ -37,16 +37,16 @@ export function ThemeToggle() {
             type="button"
             aria-pressed={active}
             aria-label={label}
+            title={label}
             onClick={() => setTheme(value)}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-sm px-2 text-xs font-medium transition-colors duration-100",
+              "inline-flex h-7 w-7 items-center justify-center rounded-sm transition-colors duration-100",
               active
                 ? "bg-accent-primary-weak text-accent-primary"
                 : "text-fg-secondary hover:text-fg-primary",
             )}
           >
             <Icon size={14} strokeWidth={1.5} />
-            {label}
           </button>
         );
       })}
