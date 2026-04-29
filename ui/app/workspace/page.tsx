@@ -118,7 +118,14 @@ export default function WorkspacePage() {
       onOpen: () => setStreamConnected(true),
       onError: () => setStreamConnected(false),
       onEvents: (incoming) => {
-        setEvents((prev) => [...prev, ...incoming]);
+        // The server replays the full event log on subscribe; we've
+        // already fetched it via getEvents(0). Dedupe by stable
+        // JSON identity so the SSE replay doesn't double the feed.
+        setEvents((prev) => {
+          const seen = new Set(prev.map((e) => JSON.stringify(e)));
+          const fresh = incoming.filter((e) => !seen.has(JSON.stringify(e)));
+          return fresh.length ? [...prev, ...fresh] : prev;
+        });
         // Refresh derived data that's not on the stream yet.
         void getDeliberations().then(setList);
         void getInboxes().then(setInboxes);
