@@ -456,31 +456,50 @@ function Header({
           <Badge variant="warning">{yourTurnPending} pending for you</Badge>
         ) : null}
         {showSetup ? (
-          <Button variant="outline" size="sm" onClick={onOpenSetup} title="Run first-time setup">
-            <Wand2 size={14} /> Setup
-          </Button>
+          <IconBtn onClick={onOpenSetup} title="Run first-time setup">
+            <Wand2 size={14} />
+          </IconBtn>
         ) : null}
-        <Button variant="outline" size="sm" onClick={onOpenContext} title="Manage context">
-          <BookOpen size={14} /> Context
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onOpenPermissions}
-          title="Pending permission requests"
-        >
-          <KeyRound size={14} /> Permissions
-        </Button>
-        <Button variant="outline" size="sm" onClick={onOpenSettings} title="Open settings">
-          <Settings2 size={14} /> Settings
-        </Button>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+        <IconBtn onClick={onOpenContext} title="Manage context">
+          <BookOpen size={14} />
+        </IconBtn>
+        <IconBtn onClick={onOpenPermissions} title="Pending permission requests">
+          <KeyRound size={14} />
+        </IconBtn>
+        <IconBtn onClick={onOpenSettings} title="Open settings">
+          <Settings2 size={14} />
+        </IconBtn>
+        <IconBtn onClick={onRefresh} disabled={loading} title="Refresh">
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
-          Refresh
-        </Button>
+        </IconBtn>
         <ThemeToggle />
       </div>
     </header>
+  );
+}
+
+function IconBtn({
+  children,
+  onClick,
+  disabled,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-default text-fg-secondary hover:bg-recessed hover:text-fg-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {children}
+    </button>
   );
 }
 
