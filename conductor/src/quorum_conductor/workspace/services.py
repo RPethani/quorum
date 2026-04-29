@@ -209,7 +209,13 @@ def tail_log(paths: WorkspacePaths, name: ServiceName, *, n: int = 80) -> str:
 
 
 def _start_server(paths: WorkspacePaths, *, port: int) -> ServiceStatus:
-    actual_port = _pick_port(port)
+    if not _port_is_free(port):
+        raise ServiceError(
+            f"port {port} is already in use — something else (maybe another "
+            f"`quorum serve`) is bound there. Stop it first, or pass "
+            f"`--server-port <other>` to use a different port."
+        )
+    actual_port = port
     log_path = _log_path(paths, "server")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("ab")
@@ -274,7 +280,13 @@ def _start_ui(paths: WorkspacePaths, *, ui_port: int, server_port: int) -> Servi
             "No JS package manager found (pnpm/bun/npm). Install one and "
             "re-run."
         )
-    actual_port = _pick_port(ui_port)
+    if not _port_is_free(ui_port):
+        raise ServiceError(
+            f"port {ui_port} is already in use — something else (maybe a "
+            f"`pnpm dev` from another terminal) is bound there. Stop it "
+            f"first, or pass `--ui-port <other>` to use a different port."
+        )
+    actual_port = ui_port
     log_path = _log_path(paths, "ui")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("ab")
@@ -401,22 +413,13 @@ def _send_signal(target: int, sig: signal.Signals) -> None:
         os.kill(target, sig)
 
 
-def _pick_port(preferred: int) -> int:
-    """Try the preferred port; if taken, walk forward until something binds.
-
-    Probes both an IPv4 bind on `127.0.0.1` and an IPv6/dual-stack bind
-    on `::` so we don't miss listeners on the other stack (Next.js, for
-    instance, listens on `::` by default which also covers IPv4).
-    """
-    for candidate in range(preferred, preferred + 25):
-        if _port_is_free(candidate):
-            return candidate
-    raise ServiceError(
-        f"no free port near {preferred}; close whatever is hogging the range."
-    )
-
-
 def _port_is_free(port: int) -> bool:
+    """True iff `port` accepts a fresh bind on both IPv4 and IPv6.
+
+    Probes both `127.0.0.1` and `::` so we don't miss listeners on the
+    other stack (Next.js, for instance, listens on `::` by default
+    which also covers IPv4 connections).
+    """
     for family, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::")):
         try:
             s = socket.socket(family, socket.SOCK_STREAM)
