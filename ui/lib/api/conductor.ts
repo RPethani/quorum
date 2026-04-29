@@ -7,12 +7,18 @@
 
 const DEFAULT_BASE = "http://127.0.0.1:8500";
 
+// `NEXT_PUBLIC_QUORUM_API` is injected by the conductor when it spawns
+// `next dev` via `quorum up` (see services.py), so the UI lands on
+// whichever port the server actually bound. The `?api=` query override
+// is kept as a debugging escape hatch.
+const ENV_BASE = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_QUORUM_API : undefined;
+
 function base(): string {
   if (typeof window !== "undefined") {
     const param = new URLSearchParams(window.location.search).get("api");
     if (param) return param;
   }
-  return DEFAULT_BASE;
+  return ENV_BASE || DEFAULT_BASE;
 }
 
 export type WorkspaceStateResponse = {
