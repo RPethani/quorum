@@ -48,9 +48,9 @@ The plan refines the build order in §14 of the design doc and the phase list in
 - `ui/components/design-system/tokens.css` — CSS custom properties for both modes.
 - `ui/components/design-system/theme-provider.tsx` — `next-themes` wrapper with our defaults.
 - `ui/tailwind.config.ts` — wired to consume tokens via `@theme`.
-- `ui/app/design-system/page.tsx` — showcase route rendering every atom and component variant in both modes. (The bootstrap suggested `_design-system`, but Next.js App Router treats `_`-prefixed folders as non-routable private folders; renamed per `docs/decisions/001-design-system-route-name.md`.)
+- ~~`ui/app/design-system/page.tsx` — showcase route~~ — removed at user request after design-system review concluded; not needed in v1 since the workspace itself is the integration test.
 
-**Validation gate.** User runs the UI dev server, opens `/design-system`, and confirms the system feels right in light and dark modes.
+**Validation gate.** Closed by the user after reviewing the design system through the live workspace UI.
 
 ---
 
@@ -106,6 +106,13 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 **Validation gate.** User adds a repo via CLI; digestion runs; bundle assembly is verified by inspecting an invocation's context via `events.jsonl`.
 
+**Sub-checkpoint 6e (post-Phase-9 catch-up).** Doc extraction
+(PDF/DOCX/MD/TXT via pdfplumber + python-docx), URL fetch
+(trafilatura + cached Markdown), async digestion queue, and
+`digest_age_at_use` per-invocation logging via the `ContextLoaded`
+event all shipped — see ADR-002 update. Refresh-policy automation
+remains the only residual deferral.
+
 ---
 
 ## Phase 7 — UI shell (the real one) ✅
@@ -118,7 +125,9 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ## Phase 8 — UI live updates + streaming ✅
 
-**Goal.** Server-side file watcher pushing via WebSocket; composing/complete/failed move-card states; activity feed sourced from `events.jsonl`; deliberation timeline; routing-decision visibility; cost ceiling progress display.
+**Goal.** Server-side watcher pushing live updates; composing/complete/failed move-card states; activity feed sourced from `events.jsonl`; deliberation timeline; routing-decision visibility; cost ceiling progress display.
+
+**Implementation deviation.** SSE + 250 ms polling instead of WebSocket + inotify/watchdog — see ADR-006 for the reasoning.
 
 **Validation gate.** User runs a deliberation and watches it unfold live in the UI.
 
@@ -128,6 +137,14 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 **Goal.** All eight panels from §9.8 Tier 2 with full functionality, frozen / live / live-with-effects indicators, confirmation dialogs. Permissions panel shows broker-disabled state with a toggle (broker itself ships in Phase 11).
 
+**Status.** Panels live in `ui/components/dialogs/settings-dialog.tsx`
+as discrete React sub-components rather than under
+`ui/components/settings/`. Tier indicators (`frozen` /
+`live` / `live · takes effect later`) are surfaced as TierBadge pills
+in each panel header. Coverage: Participants, Context, Digester
+defaults, Routing overrides, Permission auto-approval, Unavailability
+policy, Workspace lifecycle (cost ceiling + frozen mode), Manifest.
+
 **Validation gate.** User navigates each panel, edits a few settings, verifies behavior.
 
 ---
@@ -135,6 +152,13 @@ The plan refines the build order in §14 of the design doc and the phase list in
 ## Phase 10 — Raw YAML editor + human response forms ✅
 
 **Goal.** §9.8 Tier 3 raw editor; structured response form (§9.7); human-initiated moves (§12.5): INTERJECTION, OVERRIDE, REOPEN, DROP, STEER, CLARIFY.
+
+**Status.** Raw editor shipped as `RawEditorDialog` (open via the Code2
+icon in the workspace header); reads/writes the existing whitelisted
+files via `/api/raw`. Compose-move form shipped earlier in
+`components/workspace/compose-move-form.tsx` with per-section types
+(enums for Stakes / Force level / Spawns ADR? / Direction / Duration;
+Summary line as a 120-char Input).
 
 **Validation gate.** User issues each human-initiated move type and verifies it round-trips correctly.
 

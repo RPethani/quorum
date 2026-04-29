@@ -13,8 +13,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterable
 
+from ..core.context_bundle import summarize_bundle
 from ..core.loop import PendingItem
-from ..events import EventLogger
+from ..events import ContextLoaded, EventLogger
 from ..paths import WorkspacePaths
 from .invoker import InvocationRequest, InvocationResult, invoke
 
@@ -42,6 +43,24 @@ async def run_items(
 
     semaphore = asyncio.Semaphore(max(1, max_concurrent))
     logger = events or EventLogger(paths.events_jsonl)
+
+    # Emit ContextLoaded once per invocation before we hit the agent so
+    # the activity feed shows what sources (and how many tokens) the
+    # bundle carried. design-doc §1.8 / §10.5.
+    for req in requests:
+        try:
+            tokens, sources = summarize_bundle(paths, req.deliberation)
+        except Exception:
+            tokens, sources = 0, []
+        logger.emit(
+            ContextLoaded(
+                handle=req.handle.handle,
+                role=req.role,
+                deliberation_id=req.deliberation.id,
+                bundle_tokens_estimated=tokens,
+                sources=sources,
+            )
+        )
 
     async def _one(req: InvocationRequest) -> InvocationResult:
         async with semaphore:

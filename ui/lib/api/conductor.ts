@@ -601,8 +601,10 @@ export async function applySettings(payload: SettingsPayload): Promise<SettingsA
 
 // ----- Phase-10 endpoints -------------------------------------------------- //
 
+export type RawFileEntry = { path: string; exists: boolean; size_bytes: number };
+
 export type RawListing = {
-  files: { path: string; exists: boolean; size_bytes: number }[];
+  files: RawFileEntry[];
 };
 export type RawFile = { path: string; content: string };
 

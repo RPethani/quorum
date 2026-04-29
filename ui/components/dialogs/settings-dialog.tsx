@@ -24,6 +24,37 @@ import {
 import { Lock, Plus, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+type Tier = "frozen" | "live" | "live-with-effects";
+
+const TIER_BADGE_CLASSES: Record<Tier, string> = {
+  frozen: "bg-recessed text-fg-tertiary border border-border-default",
+  live: "bg-accent-success-weak text-accent-success border border-accent-success/40",
+  "live-with-effects": "bg-accent-warning-weak text-accent-warning border border-accent-warning/40",
+};
+
+const TIER_BADGE_LABELS: Record<Tier, string> = {
+  frozen: "frozen",
+  live: "live",
+  "live-with-effects": "live · takes effect later",
+};
+
+function TierBadge({ tier }: { tier: Tier }) {
+  return (
+    <span
+      className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${TIER_BADGE_CLASSES[tier]}`}
+      title={
+        tier === "frozen"
+          ? "Frozen after the workspace's first start. To change, fork the workspace."
+          : tier === "live"
+            ? "Saved values apply immediately."
+            : "Saved values take effect on the next relevant event (e.g. an unavailability)."
+      }
+    >
+      {TIER_BADGE_LABELS[tier]}
+    </span>
+  );
+}
+
 /**
  * Settings dialog — same eight panels as the previous full-page
  * settings, just rendered inside the workspace's modal layer.
@@ -238,7 +269,7 @@ function UnavailabilityPanel({
     <Card>
       <CardHeader>
         <CardTitle>
-          When agents are unavailable <Badge variant="primary">live</Badge>
+          When agents are unavailable <TierBadge tier="live-with-effects" />
         </CardTitle>
         <p className="text-sm text-fg-secondary">
           Drives substitution when a routed handle is unavailable. Takes effect on the next
@@ -310,7 +341,7 @@ function LifecyclePanel({
     <Card>
       <CardHeader>
         <CardTitle>
-          Workspace lifecycle <Badge variant="primary">live</Badge>
+          Workspace lifecycle <TierBadge tier="live" /> <TierBadge tier="frozen" />
         </CardTitle>
         <p className="text-sm text-fg-secondary">
           Cost ceiling and (until first start) workspace mode.
@@ -449,7 +480,7 @@ function DigesterDefaultsPanel({
     <Card>
       <CardHeader>
         <CardTitle>
-          Digester defaults <Badge variant="primary">live</Badge>
+          Digester defaults <TierBadge tier="live" />
         </CardTitle>
         <p className="text-sm text-fg-secondary">
           Default agent for digesting context sources, per relevance level. Per-source overrides on
@@ -537,7 +568,7 @@ function RoutingOverridesPanel({
     <Card>
       <CardHeader>
         <CardTitle>
-          Routing overrides <Badge variant="primary">live</Badge>
+          Routing overrides <TierBadge tier="live" />
         </CardTitle>
         <p className="text-sm text-fg-secondary">
           Workspace-level pin for a role (Layer 2). Per-deliberation pins still override these.
@@ -619,7 +650,7 @@ function AutoApprovePanel({
     <Card>
       <CardHeader>
         <CardTitle>
-          Permission auto-approval <Badge variant="primary">live</Badge>
+          Permission auto-approval <TierBadge tier="live" />
         </CardTitle>
         <p className="text-sm text-fg-secondary">
           The conductor auto-approves permission requests at or below this stake tier. Anything

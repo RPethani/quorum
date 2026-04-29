@@ -157,6 +157,62 @@ def assemble_deliberation_bundle(
     return DeliberationBundle(repos=repos, docs=docs, urls=urls)
 
 
+def summarize_bundle(
+    paths: WorkspacePaths, meta: DeliberationMeta
+) -> tuple[int, list[dict[str, Any]]]:
+    """Compute (total_tokens_estimated, source_list) for one invocation.
+
+    Used by the runner to emit a `ContextLoaded` event so the activity
+    feed can show which sources fed an invocation, plus their digest
+    age (`digest_age_at_use`, design-doc §1.8 freshness tracking).
+    """
+    from datetime import UTC, datetime
+
+    standing = assemble_standing_bundle(paths)
+    delib = assemble_deliberation_bundle(paths, meta)
+
+    sources: list[dict[str, Any]] = []
+    total_words = 0
+
+    def _add(kind: str, entries: tuple[BundleEntry, ...], age_lookup_dir: Path | None = None) -> None:
+        nonlocal total_words
+        for e in entries:
+            words = len(e.body.split())
+            total_words += words
+            extra: dict[str, Any] = {
+                "kind": kind,
+                "name": e.path.stem,
+                "tokens_estimated": int(words * 1.3),
+            }
+            # Compute digest_age_at_use for digested sources only.
+            if age_lookup_dir is not None:
+                meta_path = age_lookup_dir / e.path.stem / "meta.yaml"
+                if meta_path.is_file():
+                    try:
+                        import yaml as _yaml
+
+                        data = _yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+                        ts = data.get("last_digested_at") if isinstance(data, dict) else None
+                        if ts:
+                            extra["last_digested_at"] = str(ts)
+                            try:
+                                dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                                age_days = (datetime.now(UTC) - dt).total_seconds() / 86400.0
+                                extra["digest_age_days"] = round(age_days, 2)
+                            except ValueError:
+                                pass
+                    except Exception:
+                        pass
+            sources.append(extra)
+
+    _add("standing", standing.entries)
+    _add("repo", delib.repos, age_lookup_dir=paths.context_repos)
+    _add("doc", delib.docs)
+    _add("url", delib.urls)
+
+    return int(total_words * 1.3), sources
+
+
 # ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #

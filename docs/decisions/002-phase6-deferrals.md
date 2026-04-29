@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-29
 **Phase:** 6
-**Status:** active
+**Status:** partially superseded — see "Update" below
 
 ## Context
 
@@ -64,3 +64,32 @@ Async digestion is a useful UX win but irrelevant to correctness. Adding a queue
 - The standing prompt currently doesn't auto-annotate digest age. Phase 12 (prompt iteration) will tune this when we observe whether agents' staleness handling is good enough already given just `last_digested_at` in the bundle's meta.
 
 If any of these become a real workflow blocker in Phases 7–13, surface and we'll revisit.
+
+## Update — 2026-04-29 (later in v1)
+
+The pre-v1 design-vs-implementation audit surfaced these gaps and we
+closed most of them. Status delta:
+
+- ✅ **Document digestion (PDF/DOCX/MD/TXT)**: `core/context_extract.py`
+  uses pdfplumber + python-docx; large docs (>5K-token heuristic) flow
+  through the digestion queue with the same per-source override + tier
+  default selection as repos. Adding a `.pdf` no longer drops binary
+  noise into the bundle.
+- ✅ **Web URL fetch**: `core/context_extract.fetch_url` runs trafilatura
+  on add and stores a Markdown cache at `context/web/cached/<slug>.md`.
+  `POST /api/context/urls/refresh` and a per-row Refresh button drive
+  manual re-fetch. **Refresh-policy scheduling (`weekly` / `monthly`)
+  is still deferred** — the field is captured on add but no daemon
+  acts on it.
+- ✅ **Async digestion job queue**: `core/digestion_queue.py` runs
+  digestion in a daemon thread with persistent state in
+  `runtime/services/digestions.json`. UI polls and surfaces "Digesting
+  N…" in the workspace header.
+- ✅ **`digest_age_at_use` per-invocation logging**: emitted as part of
+  the `ContextLoaded` event, via `core/context_bundle.summarize_bundle`.
+  Each digested source in the bundle carries its `last_digested_at`
+  and computed `digest_age_days`.
+
+Net: of the four items this ADR originally deferred, three are fully
+shipped and the fourth (URL refresh-policy automation) remains the
+single residual deferral.

@@ -5,6 +5,7 @@ import { AddAgentDialog } from "@/components/dialogs/add-agent-dialog";
 import { ContextDialog } from "@/components/dialogs/context-dialog";
 import { DigestionDialog } from "@/components/dialogs/digestion-dialog";
 import { PermissionsDialog } from "@/components/dialogs/permissions-dialog";
+import { RawEditorDialog } from "@/components/dialogs/raw-editor-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { SetupDialog } from "@/components/dialogs/setup-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,7 @@ import {
 import {
   BookOpen,
   ChevronRight,
+  Code2,
   KeyRound,
   Loader2,
   Plus,
@@ -81,6 +83,7 @@ export default function WorkspacePage() {
   const [contextOpen, setContextOpen] = useState(false);
   const [digestionOpen, setDigestionOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [rawEditorOpen, setRawEditorOpen] = useState(false);
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
   const [digestionInFlight, setDigestionInFlight] = useState(0);
@@ -233,6 +236,7 @@ export default function WorkspacePage() {
         onOpenContext={() => setContextOpen(true)}
         onOpenDigestion={() => setDigestionOpen(true)}
         onOpenPermissions={() => setPermissionsOpen(true)}
+        onOpenRawEditor={() => setRawEditorOpen(true)}
         showSetup={setupNeeded ?? false}
         yourTurnPending={yourTurn?.pending_count ?? 0}
         activeCount={activeMarkers.length}
@@ -376,6 +380,7 @@ export default function WorkspacePage() {
       <ContextDialog open={contextOpen} onClose={() => setContextOpen(false)} />
       <DigestionDialog open={digestionOpen} onClose={() => setDigestionOpen(false)} />
       <PermissionsDialog open={permissionsOpen} onClose={() => setPermissionsOpen(false)} />
+      <RawEditorDialog open={rawEditorOpen} onClose={() => setRawEditorOpen(false)} />
     </div>
   );
 }
@@ -389,6 +394,7 @@ function Header({
   onOpenContext,
   onOpenDigestion,
   onOpenPermissions,
+  onOpenRawEditor,
   showSetup,
   yourTurnPending,
   activeCount,
@@ -403,6 +409,7 @@ function Header({
   onOpenContext: () => void;
   onOpenDigestion: () => void;
   onOpenPermissions: () => void;
+  onOpenRawEditor: () => void;
   showSetup: boolean;
   yourTurnPending: number;
   activeCount: number;
@@ -468,6 +475,9 @@ function Header({
         </IconBtn>
         <IconBtn onClick={onOpenSettings} title="Open settings">
           <Settings2 size={14} />
+        </IconBtn>
+        <IconBtn onClick={onOpenRawEditor} title="Raw editor (advanced)">
+          <Code2 size={14} />
         </IconBtn>
         <IconBtn onClick={onRefresh} disabled={loading} title="Refresh">
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
