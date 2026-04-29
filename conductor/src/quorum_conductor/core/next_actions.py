@@ -141,12 +141,37 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
             )
         )
 
+    # 3b. Registered repos that haven't been digested yet block the
+    # loop's first real work — agents read digests, not raw source
+    # (design-doc §1.8). Surface as blocking until cleared.
+    pending_digests = _undigested_repo_count(paths)
+    if pending_digests > 0:
+        actions.append(
+            NextAction(
+                id="digest-context",
+                title=(
+                    f"{pending_digests} repo(s) need digesting before agents can use them"
+                ),
+                description=(
+                    "Open the Digestion panel to pick a digester model and kick off the "
+                    "summarisation. Runs in the background; the loop should stay paused on "
+                    "manifest-defining work until digests are reviewed."
+                ),
+                kind="dialog",
+                severity="blocking",
+                payload="digestion",
+                primary=not actions,
+            )
+        )
+
     # 4. Deliberations exist + workspace is INITIALIZED + at least one
-    # healthy agent → kick the loop.
+    # healthy agent → kick the loop. (Suppressed if any context still
+    # needs digestion above.)
     if (
         summary.deliberation_count > 0
         and summary.state.state.value == "INITIALIZED"
         and healthy_count > 0
+        and pending_digests == 0
     ):
         actions.append(
             NextAction(
@@ -258,6 +283,29 @@ def _count_human_pending(paths: WorkspacePaths) -> list[str]:
         for line in inbox_file.read_text(encoding="utf-8").splitlines()
         if line.strip().startswith("- pending:")
     ]
+
+
+def _undigested_repo_count(paths: WorkspacePaths) -> int:
+    from .context_bundle import load_context_manifest
+
+    try:
+        manifest = load_context_manifest(paths)
+    except Exception:
+        return 0
+    repos = manifest.get("repos") or []
+    if not isinstance(repos, list):
+        return 0
+    n = 0
+    for r in repos:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("name", "")).strip()
+        if not name:
+            continue
+        digest = paths.context_repos / name / "digest.md"
+        if not digest.is_file():
+            n += 1
+    return n
 
 
 def _has_context(paths: WorkspacePaths) -> bool:

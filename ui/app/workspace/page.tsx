@@ -3,6 +3,7 @@
 import { ThemeToggle } from "@/components/design-system/theme-toggle";
 import { AddAgentDialog } from "@/components/dialogs/add-agent-dialog";
 import { ContextDialog } from "@/components/dialogs/context-dialog";
+import { DigestionDialog } from "@/components/dialogs/digestion-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { SetupDialog } from "@/components/dialogs/setup-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -75,6 +76,7 @@ export default function WorkspacePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [digestionOpen, setDigestionOpen] = useState(false);
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
 
@@ -204,6 +206,7 @@ export default function WorkspacePage() {
           else if (id === "settings") setSettingsOpen(true);
           else if (id === "add-agent") setAddAgentOpen(true);
           else if (id === "context") setContextOpen(true);
+          else if (id === "digestion") setDigestionOpen(true);
         }}
       />
       <div className="flex flex-1 min-h-0">
@@ -325,6 +328,7 @@ export default function WorkspacePage() {
         onAdded={() => void refresh()}
       />
       <ContextDialog open={contextOpen} onClose={() => setContextOpen(false)} />
+      <DigestionDialog open={digestionOpen} onClose={() => setDigestionOpen(false)} />
     </div>
   );
 }

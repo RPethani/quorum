@@ -193,6 +193,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_next_actions()
             if path == "/api/fs/list":
                 return self._reply_fs_list(query)
+            if path == "/api/context/digestions":
+                return self._reply_digestions()
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -222,6 +224,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_context_add("note")
             if url.path == "/api/context/urls":
                 return self._handle_context_add("url")
+            if url.path == "/api/context/digest":
+                return self._handle_digest_queue()
             if url.path.startswith("/api/permissions/") and url.path.endswith("/approve"):
                 rid = url.path[len("/api/permissions/") : -len("/approve")]
                 return self._handle_permission_decide(rid, approve=True)
@@ -763,6 +767,42 @@ class QuorumHandler(BaseHTTPRequestHandler):
             return self._reply_json(HTTPStatus.OK, {"added": "url", "name": name})
 
         return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": f"unknown kind: {kind}"})
+
+    def _reply_digestions(self) -> None:
+        from ..core.digestion_queue import list_states
+
+        paths = self.server.paths
+        states = list_states(paths)
+        self._reply_json(
+            HTTPStatus.OK,
+            {"repos": [s.to_dict() for s in states]},
+        )
+
+    def _handle_digest_queue(self) -> None:
+        """Queue a background digestion run for one repo.
+
+        Body: { "name": "<repo-name>", "digester"?: "@handle" }
+        """
+        from ..core.digestion_queue import queue_digest
+
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "name required"})
+        digester = payload.get("digester")
+        try:
+            state = queue_digest(
+                paths,
+                name,
+                digester_handle=str(digester).strip() if digester else None,
+            )
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)})
+        self._reply_json(HTTPStatus.OK, state.to_dict())
 
     def _reply_fs_list(self, query: dict[str, list[str]]) -> None:
         """List children of a directory on the host filesystem.

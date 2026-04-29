@@ -323,6 +323,39 @@ export async function addContextUrl(payload: {
   return contextPost("urls", payload);
 }
 
+export type DigestionState = {
+  name: string;
+  relevance: string;
+  proposed_digester: string | null;
+  chosen_digester: string | null;
+  status: "idle" | "queued" | "running" | "ok" | "failed";
+  started_at: string | null;
+  completed_at: string | null;
+  duration_s: number | null;
+  error: string | null;
+  digest_exists: boolean;
+  last_digested_at: string | null;
+};
+
+export async function getDigestions(): Promise<DigestionState[]> {
+  const body = await getJSON<{ repos: DigestionState[] }>("/api/context/digestions");
+  return body.repos;
+}
+
+export async function queueDigest(name: string, digester?: string): Promise<DigestionState> {
+  const res = await fetchOrFriendlyError(`${base()}/api/context/digest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, ...(digester ? { digester } : {}) }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Queue digest failed: ${res.status}`);
+  }
+  return (await res.json()) as DigestionState;
+}
+
 export type FsEntry = { name: string; path: string; is_dir: boolean };
 export type FsListing = {
   path: string;
