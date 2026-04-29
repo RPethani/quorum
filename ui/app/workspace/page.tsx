@@ -283,11 +283,26 @@ export default function WorkspacePage() {
                 </h1>
                 <Badge variant={badgeForState(active.status)}>{active.status}</Badge>
               </div>
-              <div className="mb-3">
-                <Button variant="primary" size="sm" onClick={() => setComposeOpen(true)}>
-                  Compose move
-                </Button>
-              </div>
+              {active.human_next_action ? (
+                <div className="mb-3 rounded-md border border-accent-primary/40 bg-accent-primary-weak px-3 py-2.5">
+                  <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-accent-primary">
+                    Your turn ·{" "}
+                    <span className="font-mono">{active.human_next_action.move_type}</span>
+                  </div>
+                  <p className="mt-1 text-sm">{active.human_next_action.expected}</p>
+                  <div className="mt-2.5">
+                    <Button variant="primary" size="sm" onClick={() => setComposeOpen(true)}>
+                      Compose {active.human_next_action.move_type}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mb-3">
+                  <Button variant="primary" size="sm" onClick={() => setComposeOpen(true)}>
+                    Compose move
+                  </Button>
+                </div>
+              )}
               <Separator />
               <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-md border border-border-default bg-recessed p-4 font-mono text-xs leading-relaxed">
                 {active.markdown}
@@ -352,6 +367,19 @@ export default function WorkspacePage() {
       {composeOpen && active ? (
         <ComposeMoveForm
           deliberationId={active.id}
+          defaultMoveType={
+            (active.human_next_action?.move_type as
+              | "ANSWER"
+              | "DECISION"
+              | "INTERJECTION"
+              | "OVERRIDE"
+              | "REOPEN"
+              | "DROP"
+              | "STEER"
+              | "CLARIFY"
+              | "QUESTION"
+              | undefined) ?? undefined
+          }
           onClose={() => setComposeOpen(false)}
           onAppended={() => {
             void getDeliberation(active.id).then(setActive);

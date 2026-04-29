@@ -411,6 +411,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
                         "tags": meta.tags,
                         "filename": path.name,
                         "markdown": path.read_text(encoding="utf-8"),
+                        "human_next_action": _human_next_action_for(paths, ident),
                     },
                 )
                 return
@@ -1551,6 +1552,78 @@ def _read_yaml_field(path: Path, key: str) -> Any:
     if isinstance(data, dict):
         return data.get(key)
     return None
+
+
+def _human_next_action_for(
+    paths: WorkspacePaths, deliberation_id: str
+) -> dict[str, Any] | None:
+    """Surface the planner's per-deliberation next-action to the UI.
+
+    Returns the move_type / role / reason / a friendly "what's
+    expected" line for *this* deliberation if and only if the next
+    pending move is on a manual-transport (i.e., human) handle.
+    Returns None when the planner has nothing pending or the next
+    actor is an agent.
+    """
+    try:
+        result = plan(paths)
+    except Exception:
+        return None
+    item = next(
+        (i for i in result.items if i.deliberation.id == deliberation_id and i.is_manual),
+        None,
+    )
+    if item is None:
+        return None
+    return {
+        "move_type": item.move_type,
+        "role": item.role,
+        "reason": item.reason,
+        "expected": _what_human_should_do(item.move_type, item.role, item.reason),
+    }
+
+
+def _what_human_should_do(move_type: str, role: str, reason: str) -> str:
+    """Plain-English instruction for the human, derived from the
+    planner's (role, move_type, reason) tuple."""
+    if move_type == "PROPOSAL":
+        return (
+            "Author a PROPOSAL. Read what's in this deliberation so far, then "
+            "open Compose move and fill in your initial proposal — the move "
+            "type is pre-selected for you."
+        )
+    if move_type == "CRITIQUE":
+        return (
+            "Author a CRITIQUE of the existing PROPOSAL. Look for missing "
+            "alternatives, weak reasoning, or risks the proposer hasn't "
+            "addressed. Pre-selected in Compose move."
+        )
+    if move_type == "SYNTHESIS":
+        return (
+            "Author a SYNTHESIS that resolves the proposal + critiques into "
+            "a single direction. Compose move has the form ready."
+        )
+    if move_type == "DECISION":
+        return (
+            "Author a DECISION. Read the SYNTHESIS, then commit to a path "
+            "with a clear summary line and rationale. Compose move is "
+            "pre-set to DECISION."
+        )
+    if move_type == "ANSWER":
+        return (
+            "An agent asked you a QUESTION. Open Compose move (pre-set to "
+            "ANSWER) and respond — don't worry about completeness; agents "
+            "will work with whatever you give them."
+        )
+    if move_type == "EXPLANATION":
+        return (
+            "An EXPLANATION was requested. Open Compose move (pre-set) and "
+            "describe the prior work in plain language."
+        )
+    return (
+        f"Author a {move_type} ({role}). Open Compose move and fill in the "
+        f"sections; the move type is pre-selected for you."
+    )
 
 
 def _slugify(value: str) -> str:

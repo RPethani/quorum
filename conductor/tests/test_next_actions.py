@@ -31,7 +31,7 @@ def _signals(**overrides: object) -> _Signals:
         "pending_digests": 0,
         "pending_urls": 0,
         "pending_permissions": 0,
-        "pending_human_lines": [],
+        "human_blocker_ids": [],
         "has_context": True,
     }
     base.update(overrides)
@@ -48,7 +48,7 @@ def test_phase_needs_setup_wins_over_everything() -> None:
         statement_empty=True,
         deliberation_count=0,
         cli_count=0,  # also flagged
-        pending_human_lines=["- pending: PROPOSAL in #0001 by @x"],
+        human_blocker_ids=["0001"],
     )
     assert _resolve_phase(s) is WorkspacePhase.NEEDS_SETUP
 
@@ -67,7 +67,7 @@ def test_phase_needs_digestion_blocks_human_action() -> None:
     """A pending digest is more urgent than a pending human move."""
     s = _signals(
         pending_digests=2,
-        pending_human_lines=["- pending: PROPOSAL in #0001 by @x"],
+        human_blocker_ids=["0001"],
     )
     assert _resolve_phase(s) is WorkspacePhase.NEEDS_DIGESTION
 
@@ -75,13 +75,13 @@ def test_phase_needs_digestion_blocks_human_action() -> None:
 def test_phase_awaiting_permission_above_human() -> None:
     s = _signals(
         pending_permissions=1,
-        pending_human_lines=["- pending: PROPOSAL in #0001 by @x"],
+        human_blocker_ids=["0001"],
     )
     assert _resolve_phase(s) is WorkspacePhase.AWAITING_PERMISSION
 
 
 def test_phase_awaiting_human_when_inbox_has_pending() -> None:
-    s = _signals(pending_human_lines=["- pending: PROPOSAL in #0001 by @x"])
+    s = _signals(human_blocker_ids=["0001"])
     assert _resolve_phase(s) is WorkspacePhase.AWAITING_HUMAN
 
 
@@ -110,7 +110,7 @@ def test_awaiting_human_emits_no_start_loop_suggestion() -> None:
     while a human move is pending. answer-inbox is the only output."""
     s = _signals(
         state_value="INITIALIZED",
-        pending_human_lines=["- pending: PROPOSAL in #0001 by @x"],
+        human_blocker_ids=["0001"],
     )
     actions = _actions_for(_resolve_phase(s), s)
     ids = [a.id for a in actions]

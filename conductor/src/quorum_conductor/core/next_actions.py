@@ -84,7 +84,10 @@ class _Signals:
     pending_digests: int
     pending_urls: int
     pending_permissions: int
-    pending_human_lines: list[str]
+    # Deliberation IDs where the planner's next-actor is a
+    # manual-transport handle (i.e. the human really is blocking work).
+    # NOT the same as inbox pending lines, which include FYI tags.
+    human_blocker_ids: list[str]
     has_context: bool
 
 
@@ -116,7 +119,7 @@ def _resolve_phase(s: _Signals) -> WorkspacePhase:
         return WorkspacePhase.NEEDS_DIGESTION
     if s.pending_permissions > 0:
         return WorkspacePhase.AWAITING_PERMISSION
-    if s.pending_human_lines:
+    if s.human_blocker_ids:
         return WorkspacePhase.AWAITING_HUMAN
     if s.deliberation_count > 0 and s.state_value == "INITIALIZED":
         return WorkspacePhase.READY_TO_RUN
@@ -230,23 +233,22 @@ def _actions_for(phase: WorkspacePhase, s: _Signals) -> list[NextAction]:
         ]
 
     if phase is WorkspacePhase.AWAITING_HUMAN:
-        delib_ids = sorted(
-            {line.split("#")[1].split(" ")[0] for line in s.pending_human_lines}
-        )
-        ids_summary = ", ".join(f"#{d}" for d in delib_ids[:3]) + (
-            "…" if len(delib_ids) > 3 else ""
+        ids_summary = ", ".join(f"#{d}" for d in s.human_blocker_ids[:3]) + (
+            "…" if len(s.human_blocker_ids) > 3 else ""
         )
         return [
             NextAction(
                 id="answer-inbox",
                 title=(
-                    f"You have {len(s.pending_human_lines)} pending "
-                    f"move(s) on {ids_summary}"
+                    f"Your move on {ids_summary} — "
+                    f"{len(s.human_blocker_ids)} deliberation"
+                    f"{'s' if len(s.human_blocker_ids) != 1 else ''} waiting on you"
                 ),
                 description=(
-                    "Click the deliberation in the left panel, read the latest "
-                    "PROPOSAL/CRITIQUE, then click 'Compose move' to respond. The "
-                    "loop pauses here until you author the next move."
+                    "The loop has reached a point where the next move is yours "
+                    "(typically a DECISION or an ANSWER). Open the deliberation "
+                    "and click the 'Your turn' callout at the top — Compose move "
+                    "is pre-selected with the correct move type."
                 ),
                 kind="info",
                 severity="blocking",
@@ -308,9 +310,25 @@ def _gather_signals(paths: WorkspacePaths) -> _Signals:
         pending_digests=pending_digests,
         pending_urls=pending_urls,
         pending_permissions=_pending_permission_count(paths),
-        pending_human_lines=_count_human_pending(paths),
+        human_blocker_ids=_human_blocker_ids(paths),
         has_context=_has_context(paths),
     )
+
+
+def _human_blocker_ids(paths: WorkspacePaths) -> list[str]:
+    """Return deliberation IDs whose next planner-action is on the human.
+
+    This is the source of truth for "really blocked on you" — distinct
+    from inbox-pending lines which also include FYI tags from agents
+    notifying the decider that work happened.
+    """
+    from .loop import plan as _plan
+
+    try:
+        result = _plan(paths)
+    except Exception:
+        return []
+    return [item.deliberation.id for item in result.items if item.is_manual]
 
 
 # ---------------------------------------------------------------------- #

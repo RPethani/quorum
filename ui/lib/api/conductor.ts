@@ -55,8 +55,16 @@ export type DeliberationListItem = {
   human_pending: number;
 };
 
+export type HumanNextAction = {
+  move_type: string;
+  role: string;
+  reason: string;
+  expected: string;
+};
+
 export type DeliberationDetail = DeliberationListItem & {
   markdown: string;
+  human_next_action: HumanNextAction | null;
 };
 
 export type PlanItemResponse = {
