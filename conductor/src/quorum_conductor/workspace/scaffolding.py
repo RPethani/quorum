@@ -86,7 +86,7 @@ human_timeout:
 """
 
 
-PARTICIPANTS_TEMPLATE = """\
+PARTICIPANTS_TEMPLATE_HEAD = """\
 ---
 schema_version: 0.1
 last_updated: 2026-04-28
@@ -102,8 +102,11 @@ last_updated: 2026-04-28
 
 | Handle | Display Name | CLI Command | Model | Transport | Quota (daily/per-deliberation) | Permission Capability | Account Label | Health |
 |---|---|---|---|---|---|---|---|---|
-| @human-rohan | You | (manual) | n/a | manual | unlimited | n/a | (none) | n/a |
 """
+
+PARTICIPANTS_HUMAN_ROW = (
+    "| {handle} | You | (manual) | n/a | manual | unlimited | n/a | (none) | n/a |\n"
+)
 
 
 GITIGNORE_TEMPLATE = """\
@@ -191,16 +194,26 @@ class ScaffoldingError(RuntimeError):
     """Raised when scaffolding cannot proceed (e.g., target already exists)."""
 
 
-def scaffold_workspace(paths: WorkspacePaths) -> None:
+def scaffold_workspace(
+    paths: WorkspacePaths, *, human_handle: str | None = None
+) -> None:
     """Create the directory tree and write initial files.
 
     Refuses to run if `state.yaml` already exists at the target.
+    `human_handle` defaults to `identity.default_human_handle()` —
+    detected from $USER / git config / fallback. The chosen handle
+    becomes the row in `participants.md` and the inbox file name.
     """
     if paths.state_yaml.exists():
         raise ScaffoldingError(
             f"Refusing to scaffold: {paths.state_yaml} already exists. "
             "This directory is already a Quorum workspace."
         )
+
+    if human_handle is None:
+        from .identity import default_human_handle
+
+        human_handle = default_human_handle()
 
     paths.root.mkdir(parents=True, exist_ok=True)
     for d in paths.all_directories():
@@ -213,7 +226,10 @@ def scaffold_workspace(paths: WorkspacePaths) -> None:
     _write_if_missing(paths.gitignore, GITIGNORE_TEMPLATE)
 
     # Registers.
-    _write_if_missing(paths.participants, PARTICIPANTS_TEMPLATE)
+    participants_body = PARTICIPANTS_TEMPLATE_HEAD + PARTICIPANTS_HUMAN_ROW.format(
+        handle=human_handle
+    )
+    _write_if_missing(paths.participants, participants_body)
     _copy_routing_defaults(paths.routing_defaults)
 
     # Prompts and protocol — agents need these in-workspace per design-doc §7.
@@ -221,7 +237,7 @@ def scaffold_workspace(paths: WorkspacePaths) -> None:
     _copy_protocol_dir(paths.protocol)
 
     # Inbox seed for the human (other handles' inboxes are created lazily).
-    _write_if_missing(paths.inbox / "@human-rohan.md", "")
+    _write_if_missing(paths.inbox / f"{human_handle}.md", "")
 
     # `runtime/` is gitignored by the workspace .gitignore above, but we
     # also drop a directory-level marker so it's clear what's happening.

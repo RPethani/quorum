@@ -15,6 +15,7 @@ from .state import WorkspaceMode, WorkspaceState, WorkspaceStateModel, save_stat
 class InitOptions:
     target: Path  # the workspace root (typically <project>/quorum)
     mode: WorkspaceMode = WorkspaceMode.INTERACTIVE
+    human_handle: str | None = None  # detected at scaffold time if None
 
 
 def init_workspace(opts: InitOptions) -> WorkspacePaths:
@@ -24,7 +25,7 @@ def init_workspace(opts: InitOptions) -> WorkspacePaths:
     the target already contains a workspace.
     """
     paths = WorkspacePaths(root=opts.target.resolve())
-    scaffold_workspace(paths)
+    scaffold_workspace(paths, human_handle=opts.human_handle)
 
     state = WorkspaceStateModel(
         workspace_id=secrets.token_hex(8),

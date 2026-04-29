@@ -756,10 +756,12 @@ class QuorumHandler(BaseHTTPRequestHandler):
               "unavailability_policy": "strict" | "substitute" |
                                        "substitute_aggressively",
               "cost_ceiling_usd": 50.0,
-              "problem_statement": "<full text>"
+              "problem_statement": "<full text>",
+              "human_handle": "@human-jane"
             }
 
-        Edits config.yaml + state.yaml + problem-statement.md in place.
+        Edits config.yaml + state.yaml + problem-statement.md +
+        participants.md in place.
         """
         paths = self.server.paths
         try:
@@ -785,7 +787,42 @@ class QuorumHandler(BaseHTTPRequestHandler):
             self._update_state_mode(paths, str(payload["mode"]))
             applied.append("state.mode")
 
+        if "human_handle" in payload:
+            handle = str(payload["human_handle"]).strip()
+            if handle:
+                if not handle.startswith("@"):
+                    handle = f"@{handle}"
+                self._rename_human_handle(paths, handle)
+                applied.append("human_handle")
+
         self._reply_json(HTTPStatus.OK, {"applied": applied})
+
+    @staticmethod
+    def _rename_human_handle(paths: WorkspacePaths, new_handle: str) -> None:
+        """Replace whichever manual-transport handle is currently in
+        participants.md with `new_handle`. Also rename the inbox file so
+        the loop can find pending notifications under the new name."""
+        from ..core.participants import parse_participants
+
+        if not paths.participants.is_file():
+            return
+        text = paths.participants.read_text(encoding="utf-8")
+        existing = next(
+            (p for p in parse_participants(paths.participants) if p.transport == "manual"),
+            None,
+        )
+        if existing is None or existing.handle == new_handle:
+            return
+        # Conservative literal replace — the participants table is small
+        # and the handle string is unique enough that a regex isn't
+        # worth the complexity.
+        updated = text.replace(existing.handle, new_handle)
+        paths.participants.write_text(updated, encoding="utf-8")
+        # Rename the inbox file in place if it exists.
+        old_inbox = paths.inbox / f"{existing.handle}.md"
+        new_inbox = paths.inbox / f"{new_handle}.md"
+        if old_inbox.is_file() and not new_inbox.exists():
+            old_inbox.rename(new_inbox)
 
     @staticmethod
     def _update_config_yaml(paths: WorkspacePaths, payload: dict[str, Any]) -> None:

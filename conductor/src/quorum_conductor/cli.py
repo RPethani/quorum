@@ -97,6 +97,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Initialise the workspace in autonomous mode (no human participant).",
     )
+    p_init.add_argument(
+        "--human",
+        default=None,
+        help=(
+            "Your handle for the workspace (e.g. @human-jane). "
+            "Default: detected from $USER / git config / $QUORUM_HUMAN_HANDLE."
+        ),
+    )
     p_init.set_defaults(handler=_cmd_init)
 
     # status
@@ -283,11 +291,17 @@ def _add_path(p: argparse.ArgumentParser) -> None:
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
+    from .workspace.identity import default_human_handle
+
     target = Path(args.path).expanduser()
     mode = WorkspaceMode.AUTONOMOUS if args.autonomous else WorkspaceMode.INTERACTIVE
-    paths = init_workspace(InitOptions(target=target, mode=mode))
+    human_handle = args.human or default_human_handle()
+    paths = init_workspace(
+        InitOptions(target=target, mode=mode, human_handle=human_handle)
+    )
     print(f"initialised workspace at {paths.root}")
-    print(f"mode: {mode.value}")
+    print(f"mode    : {mode.value}")
+    print(f"you     : {human_handle}")
     print()
     print("next steps:")
     print(f"  1. edit {_rel(paths.problem_statement)} with your problem statement")

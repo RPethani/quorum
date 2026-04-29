@@ -41,14 +41,33 @@ def needs_bootstrap(paths: WorkspacePaths) -> bool:
 
 
 def bootstrap_seed_deliberation(paths: WorkspacePaths) -> Path:
-    """Create deliberation #0001 if missing. Returns the path either way."""
+    """Create deliberation #0001 if missing. Returns the path either way.
+
+    The decider on the seed is whichever human is registered in
+    `participants.md`; we read the participants table to find the first
+    `manual`-transport handle and pin them as decider. Falls back to
+    `@human` if no manual handle is registered.
+    """
     target = paths.deliberations / f"{SEED_DELIBERATION_ID}-outcome-manifest.md"
     if target.exists():
         return target
     paths.deliberations.mkdir(parents=True, exist_ok=True)
     today = datetime.now(UTC).strftime("%Y-%m-%d")
-    target.write_text(_seed_body(today), encoding="utf-8")
+    decider = _find_human_decider(paths)
+    target.write_text(_seed_body(today, decider), encoding="utf-8")
     return target
+
+
+def _find_human_decider(paths: WorkspacePaths) -> str:
+    """Return the first manual-transport handle from participants.md, or `@human`."""
+    from ..core.participants import parse_participants
+
+    if not paths.participants.is_file():
+        return "@human"
+    for p in parse_participants(paths.participants):
+        if p.transport == "manual":
+            return p.handle
+    return "@human"
 
 
 # ---------------------------------------------------------------------- #
@@ -56,7 +75,7 @@ def bootstrap_seed_deliberation(paths: WorkspacePaths) -> Path:
 # ---------------------------------------------------------------------- #
 
 
-def _seed_body(today: str) -> str:
+def _seed_body(today: str, decider: str) -> str:
     return (
         "---\n"
         f'id: "{SEED_DELIBERATION_ID}"\n'
@@ -70,7 +89,7 @@ def _seed_body(today: str) -> str:
         "  proposer: null   # bootstrapper role; routing fills this in\n"
         "  critics: []\n"
         "  synthesizer: null\n"
-        "  decider: \"@human-rohan\"\n"
+        f'  decider: "{decider}"\n'
         "  bootstrapper: null\n"
         "tags: [bootstrap, manifest]\n"
         "relevant_context:\n"

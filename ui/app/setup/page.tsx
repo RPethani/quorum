@@ -5,10 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
-import { type WizardPayload, applyWizard } from "@/lib/api/conductor";
+import { type WizardPayload, applyWizard, getParticipants } from "@/lib/api/conductor";
 import { ArrowRight, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type WorkKind =
   | "saas-product"
@@ -104,6 +104,8 @@ const CEILING_OPTIONS: { value: Ceiling; label: string }[] = [
 
 export default function SetupPage() {
   const [step, setStep] = useState(0);
+  const [humanHandle, setHumanHandle] = useState<string>("");
+  const [originalHandle, setOriginalHandle] = useState<string>("");
   const [work, setWork] = useState<WorkKind | null>(null);
   const [involvement, setInvolvement] = useState<Involvement | null>(null);
   const [substitution, setSubstitution] = useState<Substitution>("substitute");
@@ -113,7 +115,25 @@ export default function SetupPage() {
   const [submitted, setSubmitted] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const totalSteps = 5;
+  const totalSteps = 6;
+
+  // Pre-load the workspace's currently-registered manual-transport
+  // handle so the user starts with what `quorum init` detected.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const ps = await getParticipants();
+        const manual = ps.find((p) => p.transport === "manual");
+        if (manual) {
+          setHumanHandle(manual.handle);
+          setOriginalHandle(manual.handle);
+        }
+      } catch {
+        // Conductor not running — leave handle empty; the friendly
+        // error from fetchOrFriendlyError will surface on Apply.
+      }
+    })();
+  }, []);
 
   async function submit() {
     setSubmitting(true);
@@ -126,6 +146,9 @@ export default function SetupPage() {
         cost_ceiling_usd: ceiling > 0 ? ceiling : 999_999,
         ...(involvementOpt ? { mode: involvementOpt.mode } : {}),
         ...(problemStatement.trim() ? { problem_statement: problemStatement.trim() } : {}),
+        ...(humanHandle.trim() && humanHandle.trim() !== originalHandle
+          ? { human_handle: humanHandle.trim() }
+          : {}),
       };
       const res = await applyWizard(payload);
       setSubmitted(res.applied);
@@ -189,6 +212,26 @@ export default function SetupPage() {
           <div className="mt-8">
             {step === 0 ? (
               <QuestionCard
+                title="What should we call you?"
+                blurb={
+                  "Your handle on every move you author. Conductor detects this from $USER " +
+                  "or `git config user.name`; override here if you want something different."
+                }
+              >
+                <Input
+                  value={humanHandle}
+                  onChange={(e) => setHumanHandle(e.target.value)}
+                  placeholder="@human-jane"
+                  className="font-mono"
+                />
+                <p className="mt-2 text-xs text-fg-tertiary">
+                  Handles start with <code className="font-mono">@</code>. Lowercase letters,
+                  digits, and hyphens.
+                </p>
+              </QuestionCard>
+            ) : null}
+            {step === 1 ? (
+              <QuestionCard
                 title="What kind of work is this?"
                 blurb="Drives the manifest template the bootstrapper proposes."
               >
@@ -203,7 +246,7 @@ export default function SetupPage() {
                 />
               </QuestionCard>
             ) : null}
-            {step === 1 ? (
+            {step === 2 ? (
               <QuestionCard
                 title="How involved do you want to be?"
                 blurb="Drives interactive vs autonomous mode."
@@ -219,7 +262,7 @@ export default function SetupPage() {
                 />
               </QuestionCard>
             ) : null}
-            {step === 2 ? (
+            {step === 3 ? (
               <QuestionCard
                 title="If your top-choice model is unavailable, what should happen?"
                 blurb="Drives the substitution policy when a routed handle is down or rate-limited."
@@ -235,7 +278,7 @@ export default function SetupPage() {
                 />
               </QuestionCard>
             ) : null}
-            {step === 3 ? (
+            {step === 4 ? (
               <QuestionCard
                 title="Set a cost ceiling for this workspace?"
                 blurb="The conductor pauses the workspace when accumulated spend reaches the ceiling. You can change this anytime."
@@ -247,7 +290,7 @@ export default function SetupPage() {
                 />
               </QuestionCard>
             ) : null}
-            {step === 4 ? (
+            {step === 5 ? (
               <QuestionCard
                 title="Anything you want to specify upfront?"
                 blurb="This becomes your problem-statement.md. You can edit it later."

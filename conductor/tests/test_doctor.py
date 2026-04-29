@@ -13,11 +13,13 @@ def _set_participants(paths_root: Path, body: str) -> None:
 
 
 def test_doctor_returns_empty_when_no_handles(tmp_path: Path) -> None:
-    paths = init_workspace(InitOptions(target=tmp_path / "quorum"))
+    paths = init_workspace(
+        InitOptions(target=tmp_path / "quorum", human_handle="@human-tester"),
+    )
     # Default participants.md only registers the human handle; the doctor
     # should report it but with on_path=None (manual transport).
     records = doctor_check(paths)
-    assert any(r.handle == "@human-rohan" and r.on_path is None for r in records)
+    assert any(r.handle == "@human-tester" and r.on_path is None for r in records)
 
 
 def test_doctor_marks_missing_cli_as_failed(tmp_path: Path) -> None:

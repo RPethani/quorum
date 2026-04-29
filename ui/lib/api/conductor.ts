@@ -111,7 +111,7 @@ export type StepIdle = {
 export type StepResponse = StepOk | StepFailure | StepIdle;
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${base()}${path}`, { cache: "no-store" });
+  const res = await fetchOrFriendlyError(`${base()}${path}`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`${path} → ${res.status} ${res.statusText}`);
   }
@@ -119,7 +119,7 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 async function postJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${base()}${path}`, {
+  const res = await fetchOrFriendlyError(`${base()}${path}`, {
     method: "POST",
     cache: "no-store",
   });
@@ -214,7 +214,28 @@ export type WizardPayload = {
   unavailability_policy?: "strict" | "substitute" | "substitute_aggressively";
   cost_ceiling_usd?: number;
   problem_statement?: string;
+  human_handle?: string;
 };
+
+/**
+ * Wraps a fetch call so the UI can show an actionable error message
+ * when the conductor's HTTP server isn't running. Browser fetch throws
+ * a TypeError with message "Failed to fetch" / "NetworkError when
+ * attempting to fetch resource" / "Load failed" depending on the
+ * browser; we map those into a single canned message.
+ */
+async function fetchOrFriendlyError(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (e: unknown) {
+    if (e instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(e.message)) {
+      throw new Error(
+        `Could not reach the conductor at ${input}. Is \`quorum serve\` running? From the workspace folder: run \`quorum serve\` in a separate terminal (default port 8500), then retry.`,
+      );
+    }
+    throw e;
+  }
+}
 
 export async function getParticipants(): Promise<ParticipantRow[]> {
   const body = await getJSON<{ participants: ParticipantRow[] }>("/api/participants");
@@ -296,7 +317,7 @@ export function subscribeStream(handlers: StreamHandlers): () => void {
 }
 
 export async function applyWizard(payload: WizardPayload): Promise<{ applied: string[] }> {
-  const res = await fetch(`${base()}/api/wizard/apply`, {
+  const res = await fetchOrFriendlyError(`${base()}/api/wizard/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
