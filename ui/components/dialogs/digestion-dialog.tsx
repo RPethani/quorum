@@ -65,6 +65,41 @@ export function DigestionDialog({
   const allDone = states.length > 0 && states.every((s) => s.digest_exists);
   const docCount = states.filter((s) => s.kind === "doc").length;
   const repoCount = states.filter((s) => s.kind === "repo").length;
+  const [bulkDigester, setBulkDigester] = useState<string>("__per-row__");
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  function applyBulkDigester() {
+    if (bulkDigester === "__per-row__") return;
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const s of states) {
+        if (s.digest_exists) continue;
+        if (s.status === "queued" || s.status === "running") continue;
+        next[s.name] = bulkDigester;
+      }
+      return next;
+    });
+  }
+
+  async function digestAll() {
+    setBulkBusy(true);
+    setError(null);
+    try {
+      for (const s of pending) {
+        const choice =
+          overrides[s.name] ??
+          (bulkDigester !== "__per-row__" ? bulkDigester : null) ??
+          s.proposed_digester ??
+          undefined;
+        await queueDigest(s.name, choice ?? undefined, s.kind);
+      }
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   return (
     <Dialog
@@ -77,7 +112,7 @@ export function DigestionDialog({
       <div className="space-y-4">
         {error ? <p className="text-sm text-accent-danger">{error}</p> : null}
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs text-fg-tertiary">
             {states.length === 0 ? (
               <span>Nothing needs digestion yet. Add repos or docs from the Context dialog.</span>
@@ -95,6 +130,43 @@ export function DigestionDialog({
             <RefreshCw size={12} /> Refresh
           </Button>
         </div>
+
+        {pending.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-border-default bg-recessed/60 px-3 py-2 text-xs">
+            <span className="text-fg-tertiary">Apply to all pending:</span>
+            <select
+              value={bulkDigester}
+              onChange={(e) => setBulkDigester(e.target.value)}
+              className="h-7 rounded-sm border border-border-default bg-elevated px-2 text-xs"
+            >
+              <option value="__per-row__">Per-row default</option>
+              {cliHandles.map((h) => (
+                <option key={h.handle} value={h.handle}>
+                  {h.handle}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={applyBulkDigester}
+              disabled={bulkDigester === "__per-row__"}
+              title="Set the chosen digester on every pending row"
+            >
+              Apply
+            </Button>
+            <span className="ml-auto text-fg-tertiary">{pending.length} ready to run</span>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void digestAll()}
+              disabled={bulkBusy || pending.length === 0}
+            >
+              {bulkBusy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+              Digest all pending
+            </Button>
+          </div>
+        ) : null}
 
         <ul className="divide-y divide-border-default rounded-md border border-border-default bg-recessed">
           {states.map((s) => {
