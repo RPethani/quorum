@@ -21,6 +21,7 @@ from .core import (
     compute_cost,
     load_routing_defaults,
     load_workspace_config,
+    parse_participants,
     plan,
 )
 from .events import EventLogger, RoutingDecisionEvent
@@ -186,6 +187,84 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"Bind port (default: {DEFAULT_PORT}).",
     )
     p_serve.set_defaults(handler=_cmd_serve)
+
+    # context — add repos, docs, notes (Phase 6).
+    p_context = sub.add_parser(
+        "context",
+        help="Manage workspace context: repos, documents, notes.",
+    )
+    p_context_sub = p_context.add_subparsers(
+        dest="context_command", metavar="<subcommand>"
+    )
+
+    p_ctx_repo = p_context_sub.add_parser(
+        "add-repo",
+        help="Register a local repo and (optionally) digest it now.",
+    )
+    p_ctx_repo.add_argument("repo_path", help="Path to the repo on disk.")
+    p_ctx_repo.add_argument(
+        "--name",
+        default=None,
+        help="Workspace-local short name (default: repo directory name).",
+    )
+    p_ctx_repo.add_argument(
+        "--role",
+        default="",
+        help='One-line role descriptor (e.g. "user-facing web app; React, TS").',
+    )
+    p_ctx_repo.add_argument(
+        "--relevance",
+        choices=("high", "medium", "low"),
+        default="medium",
+        help="Drives digester selection. high=Opus / medium=Sonnet / low=Haiku.",
+    )
+    p_ctx_repo.add_argument(
+        "--no-digest",
+        action="store_true",
+        help="Skip digestion now; just register the metadata.",
+    )
+    _add_path(p_ctx_repo)
+    p_ctx_repo.set_defaults(handler=_cmd_context_add_repo)
+
+    p_ctx_note = p_context_sub.add_parser(
+        "add-note",
+        help="Add a Markdown note to the standing bundle (always included).",
+    )
+    p_ctx_note.add_argument(
+        "name", help="Short slug (becomes context/notes/<name>.md)."
+    )
+    p_ctx_note.add_argument(
+        "--text",
+        default=None,
+        help="Note body as a string. If omitted, --file is required.",
+    )
+    p_ctx_note.add_argument(
+        "--file",
+        default=None,
+        help="Path to a Markdown file to copy in.",
+    )
+    _add_path(p_ctx_note)
+    p_ctx_note.set_defaults(handler=_cmd_context_add_note)
+
+    p_ctx_doc = p_context_sub.add_parser(
+        "add-doc",
+        help="Register a document in /context/docs/raw/ (Phase-6d simple form).",
+    )
+    p_ctx_doc.add_argument("doc_path", help="Path to a Markdown / text doc.")
+    p_ctx_doc.add_argument(
+        "--name",
+        default=None,
+        help="Workspace-local short name (default: file stem).",
+    )
+    _add_path(p_ctx_doc)
+    p_ctx_doc.set_defaults(handler=_cmd_context_add_doc)
+
+    p_ctx_list = p_context_sub.add_parser(
+        "list",
+        help="List registered context sources (repos / docs / notes).",
+    )
+    _add_path(p_ctx_list)
+    p_ctx_list.set_defaults(handler=_cmd_context_list)
 
     return parser
 
@@ -422,6 +501,154 @@ def _cmd_pause(args: argparse.Namespace) -> int:
     print(f"conductor (pid {pid}) stopped.")
     _transition_to(paths, WorkspaceState.PAUSED)
     return 0
+
+
+def _cmd_context_add_repo(args: argparse.Namespace) -> int:
+    from .core.context_bundle import load_context_manifest, save_context_manifest
+    from .core.digestion import RepoSpec, digest_repo, resolve_digester
+
+    paths = _resolve_workspace(args)
+    repo_path = Path(args.repo_path).expanduser().resolve()
+    if not repo_path.is_dir():
+        print(f"error: {repo_path} is not a directory.", file=sys.stderr)
+        return 1
+    name = args.name or repo_path.name
+
+    paths.context_repos.mkdir(parents=True, exist_ok=True)
+    target_dir = paths.context_repos / name
+
+    manifest = load_context_manifest(paths)
+    repos = manifest.setdefault("repos", [])
+    existing = next((r for r in repos if r.get("name") == name), None)
+    record = {
+        "name": name,
+        "path": str(repo_path),
+        "role": args.role,
+        "relevance": args.relevance,
+        "added_at": _now_iso(),
+    }
+    if existing is not None:
+        existing.update(record)
+    else:
+        repos.append(record)
+    save_context_manifest(paths, manifest)
+    print(f"registered repo {name!r} at {repo_path} (relevance={args.relevance})")
+
+    if args.no_digest:
+        print("digestion skipped (--no-digest).")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return 0
+
+    config = load_workspace_config(paths.config_yaml)
+    participants = parse_participants(paths.participants)
+    digester = resolve_digester(args.relevance, config, participants)
+    if digester is None:
+        print(
+            "warning: no `cli`-transport handle is registered. "
+            "Edit registers/participants.md to add one, then "
+            f"`quorum context add-repo {repo_path} --name {name}` again "
+            "(or use --no-digest to defer).",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"digesting via {digester.handle} → {target_dir / 'digest.md'}")
+    spec = RepoSpec(
+        name=name, path=repo_path, role=args.role, relevance=args.relevance
+    )
+    result = digest_repo(spec, digester, target_dir)
+    print(f"status   : {result.status}")
+    print(f"duration : {result.duration_s:.1f}s")
+    if result.status == "ok":
+        print(f"digest   : {result.digest_path}")
+        return 0
+    print(f"error    : {result.error}")
+    return 2
+
+
+def _cmd_context_add_note(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    if args.text is None and args.file is None:
+        print("error: provide --text or --file.", file=sys.stderr)
+        return 1
+    paths.context_notes.mkdir(parents=True, exist_ok=True)
+    target = paths.context_notes / f"{args.name}.md"
+    if args.file:
+        src = Path(args.file).expanduser().resolve()
+        if not src.is_file():
+            print(f"error: {src} is not a file.", file=sys.stderr)
+            return 1
+        target.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    else:
+        body = args.text
+        if not body.endswith("\n"):
+            body += "\n"
+        target.write_text(body, encoding="utf-8")
+
+    from .core.context_bundle import load_context_manifest, save_context_manifest
+
+    manifest = load_context_manifest(paths)
+    notes = manifest.setdefault("notes", [])
+    if not any(n.get("name") == args.name for n in notes):
+        notes.append({"name": args.name, "added_at": _now_iso()})
+        save_context_manifest(paths, manifest)
+    print(f"added note {target}")
+    return 0
+
+
+def _cmd_context_add_doc(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    src = Path(args.doc_path).expanduser().resolve()
+    if not src.is_file():
+        print(f"error: {src} is not a file.", file=sys.stderr)
+        return 1
+    name = args.name or src.stem
+    raw_dir = paths.context_docs / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    target = raw_dir / src.name
+    target.write_bytes(src.read_bytes())
+
+    from .core.context_bundle import load_context_manifest, save_context_manifest
+
+    manifest = load_context_manifest(paths)
+    docs = manifest.setdefault("docs", [])
+    record = {
+        "name": name,
+        "filename": src.name,
+        "size_bytes": src.stat().st_size,
+        "added_at": _now_iso(),
+    }
+    if not any(d.get("name") == name for d in docs):
+        docs.append(record)
+    save_context_manifest(paths, manifest)
+    print(f"added doc {name!r} → {target}")
+    return 0
+
+
+def _cmd_context_list(args: argparse.Namespace) -> int:
+    from .core.context_bundle import load_context_manifest
+
+    paths = _resolve_workspace(args)
+    manifest = load_context_manifest(paths)
+    print(f"context sources for {paths.root}")
+    for label, key in (("repos", "repos"), ("docs", "docs"), ("urls", "urls"), ("notes", "notes")):
+        items = manifest.get(key) or []
+        print(f"  {label} ({len(items)}):")
+        for item in items:
+            name = item.get("name", "?")
+            extras: list[str] = []
+            if "relevance" in item:
+                extras.append(f"relevance={item['relevance']}")
+            if "path" in item:
+                extras.append(f"path={item['path']}")
+            print(f"    - {name}" + (" — " + ", ".join(extras) if extras else ""))
+    return 0
+
+
+def _now_iso() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
