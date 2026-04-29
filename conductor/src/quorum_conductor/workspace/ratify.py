@@ -84,6 +84,7 @@ def maybe_ratify_manifest(
 
     new_body = _render_manifest(canonical)
     paths.outcome_manifest.write_text(new_body, encoding="utf-8")
+    _bump_state_manifest_status(paths, "LOCKED")
 
     EventLogger(paths.events_jsonl).emit(
         _ManifestRatified(
@@ -92,6 +93,21 @@ def maybe_ratify_manifest(
         )
     )
     return True
+
+
+def _bump_state_manifest_status(paths: WorkspacePaths, new_status: str) -> None:
+    """Mirror manifest status into state.yaml so the UI's progress read
+    stays consistent with the file. The two surfaces are otherwise
+    independent (state.yaml is the conductor's lifecycle log; the
+    manifest file is the artifact); this is the only crosslink."""
+    from .state import load_state, save_state
+
+    try:
+        state = load_state(paths.state_yaml)
+    except Exception:
+        return
+    state.manifest.status = new_status
+    save_state(paths.state_yaml, state)
 
 
 def _pick_canonical_body(moves: list[re.Match[str]]) -> str | None:
