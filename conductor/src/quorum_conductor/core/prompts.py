@@ -24,6 +24,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..paths import WorkspacePaths
+from .context_bundle import (
+    assemble_deliberation_bundle,
+    assemble_standing_bundle,
+)
 from .deliberation import DeliberationMeta
 from .participants import Participant
 
@@ -77,6 +82,7 @@ class PromptInputs:
     workspace_root: Path
     deputy_active: bool = False  # set by the loop when human-timeout fires
     move_type: str | None = None  # what we're asking the agent to produce
+    paths: WorkspacePaths | None = None  # if set, assemble §1.8 context bundles
 
 
 def render_prompt(inputs: PromptInputs) -> str:
@@ -119,6 +125,18 @@ def render_prompt(inputs: PromptInputs) -> str:
     override = _read_override(inputs.overrides_dir, inputs.handle.handle)
     if override:
         rendered += f"\n## OVERRIDE — {inputs.handle.handle}\n\n{override.rstrip()}\n"
+
+    # Context bundles (design-doc §1.8) — only if the caller passed paths.
+    # Layer 1 always, Layer 2 if the deliberation declares relevant_context.
+    if inputs.paths is not None:
+        standing = assemble_standing_bundle(inputs.paths)
+        standing_md = standing.to_markdown()
+        if standing_md:
+            rendered += "\n" + standing_md
+        delib = assemble_deliberation_bundle(inputs.paths, inputs.deliberation)
+        delib_md = delib.to_markdown()
+        if delib_md:
+            rendered += "\n" + delib_md
 
     rendered += _task_framing(inputs)
     rendered = _replace_placeholders(rendered, inputs)

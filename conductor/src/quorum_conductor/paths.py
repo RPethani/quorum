@@ -89,6 +89,18 @@ class WorkspacePaths:
         return self.registers / "glossary.md"
 
     @property
+    def summarized_decisions(self) -> Path:
+        return self.registers / "summarized-decisions.md"
+
+    @property
+    def context_index(self) -> Path:
+        return self.context / "index.md"
+
+    @property
+    def context_manifest(self) -> Path:
+        return self.context / "context-manifest.yaml"
+
+    @property
     def prompts(self) -> Path:
         return self.root / "prompts"
 

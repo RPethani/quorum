@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from ..core.decisions_summary import append_summary_line
 from ..core.deliberation import DeliberationMeta
 from ..core.move_format import MoveValidation
 from ..core.participants import Participant
@@ -275,6 +276,7 @@ def _run_attempt(
             workspace_root=paths.root,
             deputy_active=request.deputy_active,
             move_type=request.move_type,
+            paths=paths,
         )
     )
     if feedback:
@@ -353,6 +355,16 @@ def _run_attempt(
                 deliberation_id=request.deliberation.id,
                 move_type=validation.header.move_type,
                 author=validation.header.author,
+            )
+            # Standing-bundle maintenance (design-doc §1.8 Layer 1):
+            # every DECISION's Summary line gets appended to
+            # registers/summarized-decisions.md so subsequent
+            # invocations see the full decision history at a glance.
+            append_summary_line(
+                paths.summarized_decisions,
+                deliberation_id=request.deliberation.id,
+                header=validation.header,
+                move_text=proc.stdout,
             )
     except AppendError as exc:
         _move_stream_to_failed(stream_path, paths, "append_failed")
