@@ -80,28 +80,27 @@ function TipsStrip({
 }) {
   const [expanded, setExpanded] = useState(false);
   if (tips.length === 0) return null;
+  const eyebrow = tips.length === 1 ? "Suggestion" : `Suggestions · ${tips.length}`;
   return (
     <BannerSection
       tone="info"
-      eyebrow={tips.length === 1 ? "Suggestion" : `Suggestions · ${tips.length}`}
+      eyebrow={eyebrow}
       icon={<Lightbulb size={11} strokeWidth={2.5} />}
-      items={expanded ? tips : tips.slice(0, 1)}
+      items={expanded ? tips : []}
       onOpenDialog={onOpenDialog}
       headerExtra={
-        tips.length > 1 ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-fg-tertiary hover:text-fg-primary transition-colors"
-          >
-            {expanded ? "Hide" : `${tips.length - 1} more`}
-            <ChevronDown
-              size={10}
-              strokeWidth={2}
-              className={`transition-transform ${expanded ? "rotate-180" : ""}`}
-            />
-          </button>
-        ) : null
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-fg-tertiary hover:text-fg-primary transition-colors"
+        >
+          {expanded ? "Hide" : tips.length === 1 ? "Show" : `${tips.length} items`}
+          <ChevronDown
+            size={10}
+            strokeWidth={2}
+            className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+        </button>
       }
     />
   );
@@ -158,19 +157,21 @@ function BannerSection({
           {eyebrow}
           {headerExtra}
         </div>
-        <ul className={`divide-y ${t.divider}`}>
-          {items.map((a) => (
-            <li key={a.id} className="flex items-center gap-3 py-1">
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold">{a.title}</div>
-                <p className="text-[11px] text-fg-secondary truncate leading-tight">
-                  {a.description}
-                </p>
-              </div>
-              <ActionButton action={a} onOpenDialog={onOpenDialog} />
-            </li>
-          ))}
-        </ul>
+        {items.length > 0 ? (
+          <ul className={`divide-y ${t.divider}`}>
+            {items.map((a) => (
+              <li key={a.id} className="flex items-center gap-3 py-1">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold">{a.title}</div>
+                  <p className="text-[11px] text-fg-secondary truncate leading-tight">
+                    {a.description}
+                  </p>
+                </div>
+                <ActionButton action={a} onOpenDialog={onOpenDialog} />
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </section>
   );
