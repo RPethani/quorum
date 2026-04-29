@@ -19,7 +19,7 @@ import {
   getParticipants,
   getState,
 } from "@/lib/api/conductor";
-import { Lock, Save } from "lucide-react";
+import { Lock, Plus, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 /**
@@ -29,9 +29,11 @@ import { useCallback, useEffect, useState } from "react";
 export function SettingsDialog({
   open,
   onClose,
+  onAddAgent,
 }: {
   open: boolean;
   onClose: () => void;
+  onAddAgent?: () => void;
 }) {
   const [state, setState] = useState<WorkspaceStateResponse | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
@@ -81,11 +83,25 @@ export function SettingsDialog({
 
         <Card>
           <CardHeader>
-            <CardTitle>Participants</CardTitle>
-            <p className="text-sm text-fg-secondary">
-              Registered handles, transports, and health. Quotas and CLI commands are edited in{" "}
-              <code className="font-mono">registers/participants.md</code> for v1.
-            </p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <CardTitle>Participants</CardTitle>
+                <p className="text-sm text-fg-secondary">
+                  Registered handles, transports, and health. Quotas and CLI commands are edited in{" "}
+                  <code className="font-mono">registers/participants.md</code> for v1.
+                </p>
+              </div>
+              {onAddAgent ? (
+                <button
+                  type="button"
+                  onClick={onAddAgent}
+                  className="shrink-0 rounded-md border border-border-default px-2.5 py-1 text-xs font-medium hover:bg-recessed transition-colors inline-flex items-center gap-1"
+                  title="Add an agent"
+                >
+                  <Plus size={12} strokeWidth={2} /> Add
+                </button>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent>
             <ParticipantsList participants={participants} />

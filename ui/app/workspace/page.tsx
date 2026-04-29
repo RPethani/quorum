@@ -32,7 +32,7 @@ import {
   getState,
   subscribeStream,
 } from "@/lib/api/conductor";
-import { ChevronRight, Loader2, RotateCw, Settings2, Wand2 } from "lucide-react";
+import { ChevronRight, Loader2, Plus, RotateCw, Settings2, Wand2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
@@ -236,9 +236,20 @@ export default function WorkspacePage() {
             <ActivityFeed events={events} />
           </div>
           <div className="border-t border-border-default py-3">
-            <h2 className="px-4 mb-2 text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
-              Participants
-            </h2>
+            <div className="px-4 mb-2 flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
+                Participants
+              </h2>
+              <button
+                type="button"
+                onClick={() => setAddAgentOpen(true)}
+                className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
+                title="Add an agent"
+                aria-label="Add an agent"
+              >
+                <Plus size={14} strokeWidth={2} />
+              </button>
+            </div>
             <ParticipantsList participants={participants} />
           </div>
         </aside>
@@ -258,7 +269,14 @@ export default function WorkspacePage() {
         onClose={() => setSetupOpen(false)}
         onApplied={() => void refresh()}
       />
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onAddAgent={() => {
+          setSettingsOpen(false);
+          setAddAgentOpen(true);
+        }}
+      />
       <AddAgentDialog
         open={addAgentOpen}
         onClose={() => setAddAgentOpen(false)}
