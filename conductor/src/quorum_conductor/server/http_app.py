@@ -47,6 +47,7 @@ from ..workspace import (
     needs_bootstrap,
     status_summary,
 )
+from .raw_files import whitelist as raw_whitelist
 from .stream import StreamHub, format_sse
 
 DEFAULT_HOST = "127.0.0.1"
@@ -140,6 +141,10 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_context()
             if path == "/api/inboxes":
                 return self._reply_inboxes()
+            if path == "/api/raw":
+                return self._reply_raw_listing()
+            if path.startswith("/api/raw/"):
+                return self._reply_raw_file(path[len("/api/raw/") :])
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -153,6 +158,10 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_wizard_apply()
             if url.path == "/api/settings/apply":
                 return self._handle_settings_apply()
+            if url.path == "/api/moves":
+                return self._handle_append_move()
+            if url.path.startswith("/api/raw/"):
+                return self._handle_raw_write(url.path[len("/api/raw/") :])
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -446,6 +455,156 @@ class QuorumHandler(BaseHTTPRequestHandler):
         }
         self._reply_json(HTTPStatus.OK, body)
 
+    def _reply_raw_listing(self) -> None:
+        paths = self.server.paths
+        wl = raw_whitelist(paths)
+        rows = []
+        for rel, p in wl.items():
+            rows.append(
+                {
+                    "path": rel,
+                    "exists": p.is_file(),
+                    "size_bytes": p.stat().st_size if p.is_file() else 0,
+                }
+            )
+        self._reply_json(HTTPStatus.OK, {"files": rows})
+
+    def _reply_raw_file(self, rel: str) -> None:
+        paths = self.server.paths
+        wl = raw_whitelist(paths)
+        if rel not in wl:
+            return self._reply_json(
+                HTTPStatus.FORBIDDEN, {"error": f"raw file {rel!r} not in whitelist"}
+            )
+        target = wl[rel]
+        if not target.is_file():
+            return self._reply_json(
+                HTTPStatus.NOT_FOUND, {"error": f"{rel} does not exist"}
+            )
+        try:
+            text = target.read_text(encoding="utf-8")
+        except OSError as exc:
+            return self._reply_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)}
+            )
+        self._reply_json(HTTPStatus.OK, {"path": rel, "content": text})
+
+    def _handle_raw_write(self, rel: str) -> None:
+        paths = self.server.paths
+        wl = raw_whitelist(paths)
+        if rel not in wl:
+            return self._reply_json(
+                HTTPStatus.FORBIDDEN, {"error": f"raw file {rel!r} not in whitelist"}
+            )
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        content = payload.get("content")
+        if not isinstance(content, str):
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST, {"error": "expected string `content`"}
+            )
+        target = wl[rel]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        self._reply_json(
+            HTTPStatus.OK, {"path": rel, "size_bytes": len(content.encode("utf-8"))}
+        )
+
+    def _handle_append_move(self) -> None:
+        from datetime import UTC, datetime
+
+        from ..core.decisions_summary import append_summary_line
+        from ..core.deliberation import load_deliberation
+        from ..core.validator import validate_move
+        from ..events import EventLogger, MoveAppended
+        from ..transport.locks import deliberation_lock
+        from ..workspace.deliberation_file import (
+            AppendError,
+            append_move,
+            update_inboxes_from_move,
+        )
+
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+
+        deliberation_id = str(payload.get("deliberation_id", "")).strip()
+        move_type = str(payload.get("move_type", "")).strip().upper()
+        author = str(payload.get("author", "")).strip() or "@human-rohan"
+        targets = payload.get("targets")
+        sections = payload.get("sections") or {}
+        if not deliberation_id or not move_type or not isinstance(sections, dict):
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "deliberation_id, move_type, and sections are required"},
+            )
+
+        delib_path = _find_deliberation_path(paths, deliberation_id)
+        if delib_path is None:
+            return self._reply_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": f"no deliberation with id {deliberation_id!r}"},
+            )
+
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        body = _render_move_block(move_type, author, ts, targets, sections)
+        validation = validate_move(
+            body, expected_move_type=move_type, templates_dir=paths.protocol_templates
+        )
+        if not validation.ok or validation.header is None:
+            return self._reply_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                {"error": "; ".join(validation.errors) or "validation failed"},
+            )
+
+        try:
+            with deliberation_lock(delib_path):
+                append_move(delib_path, body)
+                tagged = update_inboxes_from_move(
+                    body,
+                    inbox_dir=paths.inbox,
+                    deliberation_id=deliberation_id,
+                    move_type=validation.header.move_type,
+                    author=validation.header.author,
+                )
+        except AppendError as exc:
+            return self._reply_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
+            )
+
+        events = EventLogger(paths.events_jsonl)
+        events.emit(
+            MoveAppended(
+                handle=validation.header.author,
+                role="human",
+                deliberation_id=deliberation_id,
+                move_type=validation.header.move_type,
+                inboxes_notified=list(tagged),
+            )
+        )
+        append_summary_line(
+            paths.summarized_decisions,
+            deliberation_id=deliberation_id,
+            header=validation.header,
+            move_text=body,
+        )
+        # Touch the deliberation so the planner re-evaluates.
+        _ = load_deliberation(delib_path)
+
+        self._reply_json(
+            HTTPStatus.OK,
+            {
+                "appended": True,
+                "move_type": validation.header.move_type,
+                "deliberation_id": deliberation_id,
+                "inboxes_notified": tagged,
+            },
+        )
+
     def _handle_settings_apply(self) -> None:
         """Phase-9 settings panel writes. Same shape as wizard.apply but
         scoped to live-editable settings (per design-doc §9.8 editability
@@ -632,6 +791,40 @@ class QuorumHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------- #
 # Helpers (pure)
 # ---------------------------------------------------------------------- #
+
+
+def _find_deliberation_path(paths: WorkspacePaths, deliberation_id: str) -> Any:
+    if not paths.deliberations.is_dir():
+        return None
+    for candidate in paths.deliberations.glob("*.md"):
+        try:
+            meta = load_deliberation(candidate)
+        except Exception:
+            continue
+        if meta.id == deliberation_id:
+            return candidate
+    return None
+
+
+def _render_move_block(
+    move_type: str,
+    author: str,
+    ts: str,
+    targets: Any,
+    sections: dict[str, Any],
+) -> str:
+    """Build the canonical Markdown for a structured human-authored move."""
+    header = f"### [{move_type}] {author} · {ts}"
+    if isinstance(targets, str) and targets.strip():
+        header += f" → targets {targets.strip()}"
+    parts: list[str] = [header, ""]
+    for name, value in sections.items():
+        parts.append(f"## {name}")
+        parts.append("")
+        text = "" if value is None else str(value)
+        parts.append(text.rstrip() if text.strip() else "none")
+        parts.append("")
+    return "\n".join(parts).rstrip() + "\n"
 
 
 def _plan_to_json(result: PlanResult) -> dict[str, Any]:

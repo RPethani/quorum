@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
+import { ComposeMoveForm } from "@/components/workspace/compose-move-form";
 import { DeliberationsList } from "@/components/workspace/deliberations-list";
 import { ManifestProgressBar } from "@/components/workspace/manifest-progress";
 import { ParticipantsList } from "@/components/workspace/participants-list";
@@ -54,6 +55,7 @@ export default function WorkspacePage() {
   const [streamConnected, setStreamConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -178,6 +180,11 @@ export default function WorkspacePage() {
                 </h1>
                 <Badge variant={badgeForState(active.status)}>{active.status}</Badge>
               </div>
+              <div className="mb-3">
+                <Button variant="primary" size="sm" onClick={() => setComposeOpen(true)}>
+                  Compose move
+                </Button>
+              </div>
               <Separator />
               <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-md border border-border-default bg-recessed p-4 font-mono text-xs leading-relaxed">
                 {active.markdown}
@@ -212,6 +219,16 @@ export default function WorkspacePage() {
           </div>
         </aside>
       </div>
+      {composeOpen && active ? (
+        <ComposeMoveForm
+          deliberationId={active.id}
+          onClose={() => setComposeOpen(false)}
+          onAppended={() => {
+            void getDeliberation(active.id).then(setActive);
+            void getDeliberations().then(setList);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

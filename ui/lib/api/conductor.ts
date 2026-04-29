@@ -332,3 +332,60 @@ export async function applySettings(payload: SettingsPayload): Promise<SettingsA
   }
   return (await res.json()) as SettingsApplyResponse;
 }
+
+// ----- Phase-10 endpoints -------------------------------------------------- //
+
+export type RawListing = {
+  files: { path: string; exists: boolean; size_bytes: number }[];
+};
+export type RawFile = { path: string; content: string };
+
+export type AppendMovePayload = {
+  deliberation_id: string;
+  move_type: string;
+  author?: string;
+  targets?: string | null;
+  sections: Record<string, string>;
+};
+
+export type AppendMoveResponse = {
+  appended: boolean;
+  move_type: string;
+  deliberation_id: string;
+  inboxes_notified: string[];
+};
+
+export async function getRawListing(): Promise<RawListing> {
+  return getJSON<RawListing>("/api/raw");
+}
+
+export async function getRawFile(path: string): Promise<RawFile> {
+  return getJSON<RawFile>(`/api/raw/${path}`);
+}
+
+export async function saveRawFile(path: string, content: string): Promise<void> {
+  const res = await fetch(`${base()}/api/raw/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`/api/raw/${path} → ${res.status} ${res.statusText}`);
+  }
+}
+
+export async function appendMove(payload: AppendMovePayload): Promise<AppendMoveResponse> {
+  const res = await fetch(`${base()}/api/moves`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  const body = (await res.json()) as AppendMoveResponse | { error: string };
+  if (!res.ok) {
+    const errMsg = "error" in body ? body.error : "";
+    throw new Error(`/api/moves → ${res.status} ${res.statusText}: ${errMsg}`);
+  }
+  return body as AppendMoveResponse;
+}

@@ -34,6 +34,18 @@ export default function HomePage() {
           Run setup wizard →
         </Link>
         <Link
+          href="/settings"
+          className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
+        >
+          Settings →
+        </Link>
+        <Link
+          href="/settings/raw"
+          className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
+        >
+          Raw editor →
+        </Link>
+        <Link
           href="/design-system"
           className="inline-flex h-9 items-center rounded-md border border-border-default bg-elevated px-4 text-sm font-medium hover:bg-recessed transition-colors duration-100"
         >
