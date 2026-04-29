@@ -124,7 +124,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 9 — Settings UI panels ⬜
+## Phase 9 — Settings UI panels ✅
 
 **Goal.** All eight panels from §9.8 Tier 2 with full functionality, frozen / live / live-with-effects indicators, confirmation dialogs. Permissions panel shows broker-disabled state with a toggle (broker itself ships in Phase 11).
 

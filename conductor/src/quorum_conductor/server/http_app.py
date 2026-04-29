@@ -151,6 +151,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_step()
             if url.path == "/api/wizard/apply":
                 return self._handle_wizard_apply()
+            if url.path == "/api/settings/apply":
+                return self._handle_settings_apply()
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
@@ -443,6 +445,74 @@ class QuorumHandler(BaseHTTPRequestHandler):
             "error": ir.error,
         }
         self._reply_json(HTTPStatus.OK, body)
+
+    def _handle_settings_apply(self) -> None:
+        """Phase-9 settings panel writes. Same shape as wizard.apply but
+        scoped to live-editable settings (per design-doc §9.8 editability
+        rules). The conductor accepts whatever subset of fields the UI
+        sends; absent fields are not touched.
+
+        Frozen-at-first-start fields (workspace mode, manifest template,
+        workspace_id) are accepted only if state == INITIALIZED. After
+        first start the request is rejected with HTTP 409 Conflict so
+        the UI can show the lock indicator.
+        """
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+
+        applied: list[str] = []
+        rejected: list[dict[str, str]] = []
+
+        # Frozen fields require state == INITIALIZED.
+        if "mode" in payload:
+            state = load_state(paths.state_yaml)
+            if state.state.value != "INITIALIZED":
+                rejected.append({"field": "mode", "reason": "frozen after first start"})
+            else:
+                self._update_state_mode(paths, str(payload["mode"]))
+                applied.append("mode")
+
+        if any(k in payload for k in ("cost_ceiling_usd", "cost_enforce", "unavailability_policy")):
+            self._update_config_yaml_extended(paths, payload)
+            applied.append("config.yaml")
+
+        if rejected:
+            return self._reply_json(
+                HTTPStatus.CONFLICT,
+                {"applied": applied, "rejected": rejected},
+            )
+        self._reply_json(HTTPStatus.OK, {"applied": applied, "rejected": []})
+
+    @staticmethod
+    def _update_config_yaml_extended(paths: WorkspacePaths, payload: dict[str, Any]) -> None:
+        import yaml
+
+        config_text = (
+            paths.config_yaml.read_text(encoding="utf-8") if paths.config_yaml.is_file() else ""
+        )
+        raw = yaml.safe_load(config_text) or {}
+        if not isinstance(raw, dict):
+            raw = {}
+        if "cost_ceiling_usd" in payload or "cost_enforce" in payload:
+            existing_cost = raw.get("cost")
+            cost: dict[str, Any] = (
+                dict(existing_cost) if isinstance(existing_cost, dict) else {}
+            )
+            if "cost_ceiling_usd" in payload:
+                cost["ceiling_usd"] = float(payload["cost_ceiling_usd"])
+            if "cost_enforce" in payload:
+                cost["enforce"] = bool(payload["cost_enforce"])
+            cost.setdefault("enforce", True)
+            raw["cost"] = cost
+        if "unavailability_policy" in payload:
+            raw["unavailability_policy"] = str(payload["unavailability_policy"])
+        paths.config_yaml.write_text(
+            yaml.safe_dump(raw, sort_keys=False, default_flow_style=False),
+            encoding="utf-8",
+        )
 
     def _handle_wizard_apply(self) -> None:
         """Apply Phase-7 setup-wizard answers to the workspace.

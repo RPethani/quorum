@@ -307,3 +307,28 @@ export async function applyWizard(payload: WizardPayload): Promise<{ applied: st
   }
   return (await res.json()) as { applied: string[] };
 }
+
+export type SettingsPayload = {
+  cost_ceiling_usd?: number;
+  cost_enforce?: boolean;
+  unavailability_policy?: "strict" | "substitute" | "substitute_aggressively";
+  mode?: "interactive" | "autonomous";
+};
+
+export type SettingsApplyResponse = {
+  applied: string[];
+  rejected: Array<{ field: string; reason: string }>;
+};
+
+export async function applySettings(payload: SettingsPayload): Promise<SettingsApplyResponse> {
+  const res = await fetch(`${base()}/api/settings/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  if (!res.ok && res.status !== 409) {
+    throw new Error(`/api/settings/apply → ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as SettingsApplyResponse;
+}
