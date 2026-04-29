@@ -100,7 +100,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 6 — Context surface ⬜
+## Phase 6 — Context surface ✅
 
 **Goal.** §1.8 in full: repos, documents, web URLs, notes; relevance-tiered digester; background job queue; freshness tracking; conductor's per-invocation context-bundle assembly. UI panels still come later.
 
