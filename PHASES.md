@@ -116,7 +116,7 @@ The plan refines the build order in §14 of the design doc and the phase list in
 
 ---
 
-## Phase 8 — UI live updates + streaming ⬜
+## Phase 8 — UI live updates + streaming ✅
 
 **Goal.** Server-side file watcher pushing via WebSocket; composing/complete/failed move-card states; activity feed sourced from `events.jsonl`; deliberation timeline; routing-decision visibility; cost ceiling progress display.
 
