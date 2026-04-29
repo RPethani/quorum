@@ -5,6 +5,14 @@ import type { NextAction } from "@/lib/api/conductor";
 import { AlertTriangle, ChevronDown, Copy, Lightbulb } from "lucide-react";
 import { useState } from "react";
 
+type DialogId = "setup" | "settings" | "add-agent";
+
+const DIALOG_LABELS: Record<DialogId, string> = {
+  setup: "Setup",
+  settings: "Settings",
+  "add-agent": "Add agent",
+};
+
 /**
  * Persistent guidance panel above the deliberation pane.
  *
@@ -21,7 +29,7 @@ export function NextStepsPanel({
   onOpenDialog,
 }: {
   actions: NextAction[];
-  onOpenDialog: (id: "setup" | "settings") => void;
+  onOpenDialog: (id: DialogId) => void;
 }) {
   if (actions.length === 0) return null;
 
@@ -46,7 +54,7 @@ function BlockingBanner({
 }: {
   blocking: NextAction[];
   tips: NextAction[];
-  onOpenDialog: (id: "setup" | "settings") => void;
+  onOpenDialog: (id: DialogId) => void;
 }) {
   const primary = blocking.find((a) => a.primary) ?? blocking[0];
   const otherBlocking = blocking.filter((a) => a.id !== primary.id);
@@ -108,7 +116,7 @@ function TipsStrip({
   onOpenDialog,
 }: {
   tips: NextAction[];
-  onOpenDialog: (id: "setup" | "settings") => void;
+  onOpenDialog: (id: DialogId) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   if (tips.length === 0) return null;
@@ -160,17 +168,17 @@ function ActionButton({
   compact = false,
 }: {
   action: NextAction;
-  onOpenDialog: (id: "setup" | "settings") => void;
+  onOpenDialog: (id: DialogId) => void;
   compact?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   if (action.kind === "info") return null;
   const size = compact ? "sm" : "sm";
   if (action.kind === "dialog" && action.payload) {
-    const id = action.payload as "setup" | "settings";
+    const id = action.payload as DialogId;
     return (
       <Button variant="primary" size={size} onClick={() => onOpenDialog(id)} className="shrink-0">
-        Open {action.payload}
+        {DIALOG_LABELS[id] || `Open ${id}`}
       </Button>
     );
   }

@@ -39,6 +39,11 @@ from ..core import (
 )
 from ..core.context_bundle import load_context_manifest
 from ..core.next_actions import compute_next_actions
+from ..core.participants_edit import (
+    NewParticipant,
+    ParticipantsEditError,
+    append_participant,
+)
 from ..core.permissions import (
     PermissionStakes,
 )
@@ -204,6 +209,8 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_raw_write(url.path[len("/api/raw/") :])
             if url.path == "/api/permissions":
                 return self._handle_permissions_create()
+            if url.path == "/api/participants":
+                return self._handle_participants_add()
             if url.path.startswith("/api/permissions/") and url.path.endswith("/approve"):
                 rid = url.path[len("/api/permissions/") : -len("/approve")]
                 return self._handle_permission_decide(rid, approve=True)
@@ -559,6 +566,52 @@ class QuorumHandler(BaseHTTPRequestHandler):
         self._reply_json(
             HTTPStatus.OK, {"path": rel, "size_bytes": len(content.encode("utf-8"))}
         )
+
+    def _handle_participants_add(self) -> None:
+        """Append a new participant row to participants.md.
+
+        Body schema:
+          {
+            "handle": "@claude",            # required
+            "display_name": "Claude Sonnet",
+            "cli_command": "claude",
+            "model": "sonnet",
+            "transport": "cli",             # default "cli"
+            "permission_capability": "ask",
+            "account_label": "personal",
+            "quota_daily": 50,
+            "quota_per_deliberation": 5
+          }
+        """
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        handle = str(payload.get("handle", "")).strip()
+        if not handle:
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST, {"error": "handle is required"}
+            )
+        new = NewParticipant(
+            handle=handle,
+            display_name=str(payload.get("display_name", "")).strip(),
+            cli_command=str(payload.get("cli_command", "")).strip(),
+            model=str(payload.get("model", "")).strip(),
+            transport=str(payload.get("transport", "cli")).strip().lower() or "cli",
+            quota_daily=_as_optional_int(payload.get("quota_daily")),
+            quota_per_deliberation=_as_optional_int(payload.get("quota_per_deliberation")),
+            permission_capability=str(payload.get("permission_capability", "ask")).strip(),
+            account_label=str(payload.get("account_label", "")).strip(),
+            health=str(payload.get("health", "unknown")).strip() or "unknown",
+        )
+        try:
+            append_participant(paths.participants, new)
+        except ParticipantsEditError as exc:
+            return self._reply_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}
+            )
+        self._reply_json(HTTPStatus.OK, {"handle": new.normalised_handle()})
 
     def _reply_next_actions(self) -> None:
         paths = self.server.paths
@@ -929,6 +982,16 @@ class QuorumHandler(BaseHTTPRequestHandler):
 # ---------------------------------------------------------------------- #
 # Helpers (pure)
 # ---------------------------------------------------------------------- #
+
+
+def _as_optional_int(v: Any) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str) and v.strip().isdigit():
+        return int(v.strip())
+    return None
 
 
 def _find_deliberation_path(paths: WorkspacePaths, deliberation_id: str) -> Any:

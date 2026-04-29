@@ -272,6 +272,32 @@ export async function getNextActions(): Promise<NextAction[]> {
   return body.actions;
 }
 
+export type AddAgentPayload = {
+  handle: string;
+  display_name?: string;
+  cli_command?: string;
+  model?: string;
+  transport?: string;
+  permission_capability?: string;
+  account_label?: string;
+  quota_daily?: number;
+  quota_per_deliberation?: number;
+};
+
+export async function addAgent(payload: AddAgentPayload): Promise<{ handle: string }> {
+  const res = await fetchOrFriendlyError(`${base()}/api/participants`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Add agent failed: ${res.status}`);
+  }
+  return (await res.json()) as { handle: string };
+}
+
 export async function getContextManifest(): Promise<ContextManifest> {
   return getJSON<ContextManifest>("/api/context");
 }

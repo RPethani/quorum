@@ -1,6 +1,7 @@
 "use client";
 
 import { ThemeToggle } from "@/components/design-system/theme-toggle";
+import { AddAgentDialog } from "@/components/dialogs/add-agent-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { SetupDialog } from "@/components/dialogs/setup-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +63,7 @@ export default function WorkspacePage() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
 
   const refresh = useCallback(async () => {
@@ -175,6 +177,7 @@ export default function WorkspacePage() {
         onOpenDialog={(id) => {
           if (id === "setup") setSetupOpen(true);
           else if (id === "settings") setSettingsOpen(true);
+          else if (id === "add-agent") setAddAgentOpen(true);
         }}
       />
       <div className="flex flex-1 min-h-0">
@@ -256,6 +259,11 @@ export default function WorkspacePage() {
         onApplied={() => void refresh()}
       />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AddAgentDialog
+        open={addAgentOpen}
+        onClose={() => setAddAgentOpen(false)}
+        onAdded={() => void refresh()}
+      />
     </div>
   );
 }

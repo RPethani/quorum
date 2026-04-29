@@ -81,15 +81,15 @@ def compute_next_actions(paths: WorkspacePaths) -> list[NextAction]:
         actions.append(
             NextAction(
                 id="register-handle",
-                title="Register at least one CLI handle",
+                title="Add an AI agent to collaborate with",
                 description=(
-                    "Collaboration can't start without an agent. Edit "
-                    "registers/participants.md to add a cli-transport row "
-                    "(claude, codex, etc.), then run `quorum doctor` to verify."
+                    "Collaboration can't start without at least one agent. Pick the "
+                    "CLI you have access to (Claude, Codex, …) and Quorum will register "
+                    "it for you."
                 ),
-                kind="cli",
+                kind="dialog",
                 severity="blocking",
-                payload="quorum doctor",
+                payload="add-agent",
                 primary=not actions,
             )
         )
