@@ -14,6 +14,9 @@ from quorum_conductor.workspace.deliberation_file import (
 
 
 def _seed(path: Path, contributions: str = "") -> None:
+    """Seed a deliberation file. Contributions is the LAST H2 section
+    (the canonical structure post-fix) so move bodies' H2 headings can't
+    collide with the deliberation's own H2s."""
     path.write_text(
         "---\n"
         'id: "0001"\n'
@@ -21,9 +24,9 @@ def _seed(path: Path, contributions: str = "") -> None:
         "status: OPEN\n"
         "---\n\n"
         "## Question\n\nWhat?\n\n"
-        f"## Contributions\n{contributions}\n"
         "## Open Questions\n\n"
-        "## Decision\n",
+        "## Decision\n\n"
+        f"## Contributions\n{contributions}",
         encoding="utf-8",
     )
 
@@ -34,11 +37,12 @@ def test_append_move_inserts_under_contributions(tmp_path: Path) -> None:
     move = "### [PROPOSAL] @claude-opus · 2026-04-28T14:32:18Z\n\n## Position\n\nShip trial-only.\n"
     append_move(delib, move)
     body = delib.read_text(encoding="utf-8")
-    # The move must appear AFTER `## Contributions` and BEFORE `## Open Questions`.
+    # The move must appear AFTER `## Contributions` and after
+    # `## Open Questions` / `## Decision` (which precede it now).
     contrib_idx = body.index("## Contributions")
-    next_h2_idx = body.index("## Open Questions")
+    open_q_idx = body.index("## Open Questions")
     move_idx = body.index("[PROPOSAL]")
-    assert contrib_idx < move_idx < next_h2_idx
+    assert open_q_idx < contrib_idx < move_idx
 
 
 def test_append_move_preserves_existing_moves(tmp_path: Path) -> None:

@@ -366,6 +366,11 @@ def _run_attempt(
                 header=validation.header,
                 move_text=proc.stdout,
             )
+            # Auto-ratify the outcome manifest if this DECISION lands
+            # on a deliberation that ratifies it (design-doc §1.7).
+            from ..workspace.ratify import maybe_ratify_manifest
+
+            maybe_ratify_manifest(paths, request.deliberation_path)
     except AppendError as exc:
         _move_stream_to_failed(stream_path, paths, "append_failed")
         return _failure(

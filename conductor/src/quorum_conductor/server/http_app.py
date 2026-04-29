@@ -1024,9 +1024,9 @@ class QuorumHandler(BaseHTTPRequestHandler):
             "## Question\n\n"
             f"{question}\n\n"
             "## Context\n\n"
-            "## Contributions\n\n"
             "## Open Questions\n\n"
-            "## Decision\n"
+            "## Decision\n\n"
+            "## Contributions\n"
         )
         target.write_text(body, encoding="utf-8")
         self._reply_json(
@@ -1329,6 +1329,9 @@ class QuorumHandler(BaseHTTPRequestHandler):
                     move_type=validation.header.move_type,
                     author=validation.header.author,
                 )
+                from ..workspace.ratify import maybe_ratify_manifest
+
+                maybe_ratify_manifest(paths, delib_path)
         except AppendError as exc:
             return self._reply_json(
                 HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(exc)}

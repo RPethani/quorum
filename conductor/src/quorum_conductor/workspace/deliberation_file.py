@@ -20,6 +20,8 @@ _NEXT_H2_RE = re.compile(r"^##\s+\S", re.MULTILINE)
 _HANDLE_RE = re.compile(r"@[A-Za-z0-9_\-]+")
 _STATUS_LINE_RE = re.compile(r"^(status:\s*)(\S+)\s*$", re.MULTILINE)
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+_RATIFIES_RE = re.compile(r"^ratifies:\s*(\S+)\s*$", re.MULTILINE)
+_MOVE_HEADER_RE = re.compile(r"^###\s*\[([A-Z_]+)\]", re.MULTILINE)
 # Move-types that conclude a deliberation. DECISION is the normal end;
 # OVERRIDE is the human-issued unilateral end. ABANDONED via DROP is
 # also conclusive but uses a different terminal status.
@@ -32,29 +34,27 @@ class AppendError(RuntimeError):
 
 
 def append_move(deliberation_path: Path, move_text: str) -> None:
-    """Insert `move_text` at the end of the `## Contributions` section.
+    """Append `move_text` to the deliberation's Contributions section.
+
+    The deliberation file's structure is fixed: `## Contributions` is
+    the last H2 section, so appending a move always means appending to
+    the end of the file. We don't try to find a "section end" because
+    move bodies themselves use H2 headings (`## Decision`, `## Position`,
+    etc.) that would confuse any naive boundary detection. Keeping
+    Contributions last sidesteps that whole class of bug.
 
     Caller is expected to hold a deliberation lock for the duration.
     Also flips the frontmatter `status` when the appended move is
-    terminal (DECISION/OVERRIDE → DECIDED; DROP → ABANDONED), so the
-    planner sees the deliberation as done on the next tick.
+    terminal (DECISION/OVERRIDE → DECIDED; DROP → ABANDONED).
     """
     if not deliberation_path.is_file():
         raise AppendError(f"{deliberation_path} does not exist")
     body = deliberation_path.read_text(encoding="utf-8")
 
-    contrib_match = _CONTRIBUTIONS_RE.search(body)
-    if contrib_match is None:
+    if _CONTRIBUTIONS_RE.search(body) is None:
         raise AppendError(f"{deliberation_path}: no `## Contributions` heading")
-    insert_start = contrib_match.end()
 
-    next_h2 = _NEXT_H2_RE.search(body, pos=insert_start + 1)
-    insert_end = next_h2.start() if next_h2 else len(body)
-
-    section = body[insert_start:insert_end]
-    new_section = section.rstrip("\n") + "\n\n" + move_text.strip("\n") + "\n\n"
-
-    new_body = body[:insert_start] + new_section + body[insert_end:]
+    new_body = body.rstrip("\n") + "\n\n" + move_text.strip("\n") + "\n"
     new_body = _maybe_flip_status(new_body, move_text)
     deliberation_path.write_text(new_body, encoding="utf-8")
 

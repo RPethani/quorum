@@ -39,11 +39,6 @@ ratifies: null          # artifact name if this deliberation ratifies an artifac
      and artifacts. Cite by reference convention: <MOVE_TYPE>@<author>#<id>
      for moves; relative file paths for artifacts and notes. -->
 
-## Contributions
-
-<!-- Append-only list of moves. Never edit a prior move; supersede via
-     REVISION instead. Each move follows protocol/templates/<move_type>.md. -->
-
 ## Open Questions
 
 <!-- Tracked open questions specific to this deliberation. Cross-deliberation
@@ -56,3 +51,10 @@ ratifies: null          # artifact name if this deliberation ratifies an artifac
 <!-- Empty until the designated decider issues a DECISION move. The DECISION
      move itself lives in Contributions; this section is a pointer plus the
      Summary line for quick scanning. -->
+
+## Contributions
+
+<!-- Append-only list of moves. Never edit a prior move; supersede via
+     REVISION instead. Each move follows protocol/templates/<move_type>.md.
+     Contributions is the LAST section so move bodies (which use H2 headings
+     internally) don't collide with the deliberation's own structural H2s. -->

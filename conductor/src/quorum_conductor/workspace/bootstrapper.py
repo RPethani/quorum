@@ -109,7 +109,7 @@ def _seed_body(today: str, decider: str) -> str:
         "`problem-statement.md` and any relevant manifest template under "
         "`protocol/manifest-templates/`, then propose a complete manifest "
         "for human review.\n\n"
-        "## Contributions\n\n"
         "## Open Questions\n\n"
-        "## Decision\n"
+        "## Decision\n\n"
+        "## Contributions\n"
     )
