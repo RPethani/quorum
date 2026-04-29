@@ -14,9 +14,10 @@ import {
   getContextManifest,
   getRawFile,
   refreshUrl,
+  removeContextItem,
   saveRawFile,
 } from "@/lib/api/conductor";
-import { CheckCircle2, FolderOpen, Loader2, RefreshCw, Save } from "lucide-react";
+import { CheckCircle2, FolderOpen, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 /**
@@ -64,7 +65,12 @@ export function ContextDialog({
         </TabsContent>
 
         <TabsContent value="repos">
-          <ItemList items={manifest?.repos ?? []} fields={["name", "path", "relevance"]} />
+          <ItemList
+            items={manifest?.repos ?? []}
+            fields={["name", "path", "relevance"]}
+            kind="repos"
+            onRemoved={refresh}
+          />
           <AddRepoForm onAdded={refresh} />
         </TabsContent>
 
@@ -72,12 +78,19 @@ export function ContextDialog({
           <ItemList
             items={manifest?.docs ?? []}
             fields={["name", "source_path", "tokens_estimated", "needs_digest"]}
+            kind="docs"
+            onRemoved={refresh}
           />
           <AddDocForm onAdded={refresh} />
         </TabsContent>
 
         <TabsContent value="notes">
-          <ItemList items={manifest?.notes ?? []} fields={["name", "added_at"]} />
+          <ItemList
+            items={manifest?.notes ?? []}
+            fields={["name", "added_at"]}
+            kind="notes"
+            onRemoved={refresh}
+          />
           <AddNoteForm onAdded={refresh} />
         </TabsContent>
 
@@ -162,10 +175,16 @@ function ProblemStatement() {
 function ItemList({
   items,
   fields,
+  kind,
+  onRemoved,
 }: {
   items: Array<Record<string, unknown>>;
   fields: string[];
+  kind: "repos" | "docs" | "notes";
+  onRemoved: () => void;
 }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   if (!items.length) {
     return (
       <p className="px-1 py-6 text-sm text-fg-tertiary">
@@ -174,22 +193,58 @@ function ItemList({
     );
   }
   return (
-    <ul className="divide-y divide-border-default rounded-md border border-border-default bg-recessed">
-      {items.map((it, i) => (
-        <li key={`${i}-${String(it.name)}`} className="px-3 py-2 text-sm">
-          <div className="font-medium">{String(it.name ?? "(unnamed)")}</div>
-          <div className="mt-0.5 grid grid-cols-1 gap-x-4 gap-y-0.5 text-xs text-fg-tertiary md:grid-cols-3">
-            {fields
-              .filter((f) => f !== "name" && it[f] != null && it[f] !== "")
-              .map((f) => (
-                <span key={f} className="truncate">
-                  <span className="font-mono">{f}</span>: {String(it[f])}
-                </span>
-              ))}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-2">
+      {error ? <p className="text-sm text-accent-danger">{error}</p> : null}
+      <ul className="divide-y divide-border-default rounded-md border border-border-default bg-recessed">
+        {items.map((it, i) => {
+          const name = String(it.name ?? "");
+          return (
+            <li
+              key={`${i}-${name}`}
+              className="flex items-start justify-between gap-3 px-3 py-2 text-sm"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="font-medium truncate">{name || "(unnamed)"}</div>
+                <div className="mt-0.5 grid grid-cols-1 gap-x-4 gap-y-0.5 text-xs text-fg-tertiary md:grid-cols-3">
+                  {fields
+                    .filter((f) => f !== "name" && it[f] != null && it[f] !== "")
+                    .map((f) => (
+                      <span key={f} className="truncate">
+                        <span className="font-mono">{f}</span>: {String(it[f])}
+                      </span>
+                    ))}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy === name}
+                onClick={async () => {
+                  if (!name) return;
+                  setBusy(name);
+                  setError(null);
+                  try {
+                    await removeContextItem(kind, name);
+                    onRemoved();
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+                title="Remove from context"
+              >
+                {busy === name ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Trash2 size={12} />
+                )}
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -245,30 +300,53 @@ function UrlList({
                   )}
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy === name}
-                onClick={async () => {
-                  setBusy(name);
-                  setError(null);
-                  try {
-                    await refreshUrl(name);
-                    onRefreshed();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              >
-                {busy === name ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={12} />
-                )}
-                Refresh
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy === name}
+                  onClick={async () => {
+                    setBusy(name);
+                    setError(null);
+                    try {
+                      await refreshUrl(name);
+                      onRefreshed();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                >
+                  {busy === name ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={12} />
+                  )}
+                  Refresh
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy === name}
+                  onClick={async () => {
+                    if (!name) return;
+                    setBusy(name);
+                    setError(null);
+                    try {
+                      await removeContextItem("urls", name);
+                      onRefreshed();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                  title="Remove URL"
+                >
+                  <Trash2 size={12} />
+                </Button>
+              </div>
             </li>
           );
         })}

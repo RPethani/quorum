@@ -166,12 +166,18 @@ def fetch_url(url: str, *, timeout_s: float = 20.0) -> FetchedUrl:
     return FetchedUrl(url=url, title=title, markdown=markdown.strip() + "\n")
 
 
+def estimate_tokens(text: str) -> int:
+    """Public wrapper for the rough token-count heuristic."""
+    return _estimate_tokens(text)
+
+
 __all__ = [
     "DOC_DIGEST_TOKEN_THRESHOLD",
     "DocumentExtractError",
     "ExtractedDoc",
     "FetchedUrl",
     "UrlFetchError",
+    "estimate_tokens",
     "extract_doc",
     "fetch_url",
 ]

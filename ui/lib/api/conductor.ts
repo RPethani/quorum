@@ -361,6 +361,21 @@ export async function queueDigest(
   return (await res.json()) as DigestionState;
 }
 
+export async function removeContextItem(
+  kind: "repos" | "docs" | "notes" | "urls",
+  name: string,
+): Promise<{ removed: string; name: string }> {
+  const res = await fetchOrFriendlyError(
+    `${base()}/api/context/${kind}/${encodeURIComponent(name)}`,
+    { method: "DELETE", cache: "no-store" },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Remove failed: ${res.status}`);
+  }
+  return (await res.json()) as { removed: string; name: string };
+}
+
 export async function refreshUrl(name: string): Promise<{ refreshed: string }> {
   const res = await fetchOrFriendlyError(`${base()}/api/context/urls/refresh`, {
     method: "POST",

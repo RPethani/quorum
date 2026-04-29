@@ -298,8 +298,13 @@ def _undigested_counts(paths: WorkspacePaths) -> tuple[int, int]:
         `needs_digest=True` whose digested/<name>.md is missing.
       * urls_pending — URL entries whose cached/<name>.md is missing
         (failed fetch, or refresh needed).
+
+    Side-effect: backfills `tokens_estimated` / `needs_digest` on doc
+    entries that pre-date the extraction logic, so legacy adds get
+    surfaced in the next-actions banner without forcing a re-add.
     """
-    from .context_bundle import load_context_manifest
+    from .context_bundle import load_context_manifest, save_context_manifest
+    from .context_extract import DOC_DIGEST_TOKEN_THRESHOLD, estimate_tokens
 
     try:
         manifest = load_context_manifest(paths)
@@ -307,6 +312,7 @@ def _undigested_counts(paths: WorkspacePaths) -> tuple[int, int]:
         return 0, 0
     digests = 0
     urls_missing = 0
+    docs_dirty = False
     for r in manifest.get("repos") or []:
         if not isinstance(r, dict):
             continue
@@ -318,10 +324,27 @@ def _undigested_counts(paths: WorkspacePaths) -> tuple[int, int]:
     for d in manifest.get("docs") or []:
         if not isinstance(d, dict):
             continue
-        if not bool(d.get("needs_digest")):
-            continue
         name = str(d.get("name", "")).strip()
         if not name:
+            continue
+        # Backfill metadata for legacy entries.
+        if "tokens_estimated" not in d or "needs_digest" not in d:
+            stored = paths.context_docs / "raw" / f"{name}.md"
+            if not stored.is_file():
+                # Try the legacy "raw/<name>.<ext>" naming too.
+                candidates = list((paths.context_docs / "raw").glob(f"{name}.*"))
+                stored = candidates[0] if candidates else stored
+            if stored.is_file():
+                try:
+                    text = stored.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                if text:
+                    tokens = estimate_tokens(text)
+                    d["tokens_estimated"] = tokens
+                    d["needs_digest"] = tokens >= DOC_DIGEST_TOKEN_THRESHOLD
+                    docs_dirty = True
+        if not bool(d.get("needs_digest")):
             continue
         if not (paths.context_docs / "digested" / f"{name}.md").is_file():
             digests += 1
@@ -333,6 +356,8 @@ def _undigested_counts(paths: WorkspacePaths) -> tuple[int, int]:
             continue
         if not (paths.context_web / "cached" / f"{name}.md").is_file():
             urls_missing += 1
+    if docs_dirty:
+        save_context_manifest(paths, manifest)
     return digests, urls_missing
 
 

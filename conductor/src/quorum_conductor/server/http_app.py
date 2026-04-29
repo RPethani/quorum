@@ -238,10 +238,101 @@ class QuorumHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
+    def do_DELETE(self) -> None:
+        url = urlparse(self.path)
+        try:
+            path = url.path
+            if path.startswith("/api/context/repos/"):
+                return self._handle_context_remove("repo", path[len("/api/context/repos/") :])
+            if path.startswith("/api/context/docs/"):
+                return self._handle_context_remove("doc", path[len("/api/context/docs/") :])
+            if path.startswith("/api/context/notes/"):
+                return self._handle_context_remove("note", path[len("/api/context/notes/") :])
+            if path.startswith("/api/context/urls/"):
+                return self._handle_context_remove("url", path[len("/api/context/urls/") :])
+            return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+        except Exception as exc:
+            self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
         self._cors_headers()
         self.end_headers()
+
+    def _handle_context_remove(self, kind: str, slug: str) -> None:
+        """Drop one context entry from the manifest and any backing files.
+
+        For repos / docs / notes / urls we also delete the on-disk
+        artifacts (digests, raw copies, cached fetches). Tracker rows
+        in runtime/services/digestions.json are left alone — they're
+        refreshed on the next list call when the manifest is consulted.
+        """
+        from urllib.parse import unquote
+
+        from ..core.context_bundle import load_context_manifest, save_context_manifest
+
+        paths = self.server.paths
+        slug = unquote(slug)
+        if not slug:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": "name required"})
+        manifest = load_context_manifest(paths)
+        plural = {"repo": "repos", "doc": "docs", "note": "notes", "url": "urls"}[kind]
+        items = manifest.get(plural) or []
+        if not isinstance(items, list):
+            return self._reply_json(HTTPStatus.NOT_FOUND, {"error": f"no {plural} registered"})
+        index = next(
+            (
+                i
+                for i, item in enumerate(items)
+                if isinstance(item, dict) and item.get("name") == slug
+            ),
+            None,
+        )
+        if index is None:
+            return self._reply_json(
+                HTTPStatus.NOT_FOUND, {"error": f"no {kind} named {slug!r}"}
+            )
+        removed = items.pop(index)
+        save_context_manifest(paths, manifest)
+
+        # Best-effort filesystem cleanup. Missing files aren't an error;
+        # the user may have cleaned them up manually.
+        import contextlib
+        import shutil
+        from pathlib import Path
+
+        if kind == "repo":
+            target = paths.context_repos / slug
+            if target.is_dir():
+                with contextlib.suppress(OSError):
+                    shutil.rmtree(target)
+        elif kind == "doc":
+            stored = paths.context_docs / "raw" / f"{slug}.md"
+            with contextlib.suppress(FileNotFoundError):
+                stored.unlink()
+            digested = paths.context_docs / "digested" / f"{slug}.md"
+            with contextlib.suppress(FileNotFoundError):
+                digested.unlink()
+            # Old/legacy raw filenames with original extension.
+            stored_raw = removed.get("stored_path") if isinstance(removed, dict) else None
+            if isinstance(stored_raw, str):
+                with contextlib.suppress(FileNotFoundError):
+                    (paths.root / stored_raw).unlink()
+        elif kind == "note":
+            stored = paths.context_notes / f"{slug}.md"
+            with contextlib.suppress(FileNotFoundError):
+                stored.unlink()
+        elif kind == "url":
+            cached = removed.get("cached_path") if isinstance(removed, dict) else None
+            if isinstance(cached, str):
+                with contextlib.suppress(FileNotFoundError):
+                    (paths.root / cached).unlink()
+            else:
+                # Fall back to slug-derived path.
+                with contextlib.suppress(FileNotFoundError):
+                    (paths.context_web / "cached" / f"{slug}.md").unlink()
+        _ = Path  # keep import warm for type-checkers
+        self._reply_json(HTTPStatus.OK, {"removed": kind, "name": slug})
 
     # ------------------ endpoint impls ---------------------------------
     def _reply_state(self) -> None:
@@ -1323,7 +1414,7 @@ class QuorumHandler(BaseHTTPRequestHandler):
     def _cors_headers(self) -> None:
         # Local dev only — see module docstring.
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
 
