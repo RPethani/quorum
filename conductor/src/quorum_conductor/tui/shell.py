@@ -62,7 +62,6 @@ SLASH_COMMANDS: dict[str, str] = {
     "/pause": "Stop the daemonised conductor loop.",
     "/start": "Start the daemonised conductor loop.",
     "/archive": "Archive the workspace. Args: [--reason …]",
-    "/unarchive": "Unarchive the workspace.",
     "/context": "Manage context. Args: add-repo <path> | add-doc <file> | add-note <name> --text … | list",
     "/open": "Open the UI in your default browser.",
     "/next": "Show next-best actions for the current state.",
@@ -209,7 +208,6 @@ def _dispatch(state: _ShellState, line: str) -> bool:
         "/pause": lambda s, r: _run_cli_with_path(s, ["pause", *r]),
         "/start": lambda s, r: _run_cli_with_path(s, ["start", *r]),
         "/archive": lambda s, r: _run_cli_with_path(s, ["archive", *r]),
-        "/unarchive": lambda s, r: _run_cli_with_path(s, ["unarchive", *r]),
         "/context": lambda s, r: _run_cli_with_path(s, ["context", *r]),
         "/next": _do_next_actions,
     }

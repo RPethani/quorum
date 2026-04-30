@@ -40,7 +40,6 @@ from .workspace import (
     needs_bootstrap,
     save_state,
     status_summary,
-    unarchive_workspace,
 )
 from .workspace import services as _services
 from .workspace.archive import ArchiveError
@@ -146,15 +145,16 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_path(p_doctor)
     p_doctor.set_defaults(handler=_cmd_doctor)
 
-    # archive / unarchive
+    # archive
+    # NB: `unarchive` is intentionally NOT surfaced in v1 (see
+    # docs-specs/system-flow-stages.md Q6). The underlying
+    # `unarchive_workspace` function still exists in
+    # workspace/archive.py and is exercised by tests so we can
+    # re-enable later if the use case shows up.
     p_archive = sub.add_parser("archive", help="Archive the current workspace.")
     _add_path(p_archive)
     p_archive.add_argument("--reason", default="completed", help="Archive reason.")
     p_archive.set_defaults(handler=_cmd_archive)
-
-    p_unarchive = sub.add_parser("unarchive", help="Reverse an archive.")
-    _add_path(p_unarchive)
-    p_unarchive.set_defaults(handler=_cmd_unarchive)
 
     # plan (read-only inspection of what the loop would do next)
     p_plan = sub.add_parser("plan", help="Show what the loop would invoke next.")
@@ -452,11 +452,8 @@ def _cmd_archive(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_unarchive(args: argparse.Namespace) -> int:
-    paths = _resolve_workspace(args)
-    unarchive_workspace(paths)
-    print(f"unarchived workspace at {paths.root}")
-    return 0
+# `_cmd_unarchive` was removed in v1 — see argparse setup above.
+# `unarchive_workspace` still lives in workspace/archive.py.
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:

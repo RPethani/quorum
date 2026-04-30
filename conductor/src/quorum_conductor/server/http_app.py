@@ -1386,8 +1386,23 @@ class QuorumHandler(BaseHTTPRequestHandler):
 
         ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         body = _render_move_block(move_type, author, ts, targets, sections)
+        # Look up the deliberation's `ratifies:` frontmatter so the
+        # validator can enforce the "no DROP on ratification" rule.
+        delib_meta = None
+        try:
+            delib_meta = load_deliberation(delib_path)
+        except Exception:
+            pass
+        ratifies = (
+            str(delib_meta.extras.get("ratifies", "") or "").strip()
+            if delib_meta is not None
+            else ""
+        ) or None
         validation = validate_move(
-            body, expected_move_type=move_type, templates_dir=paths.protocol_templates
+            body,
+            expected_move_type=move_type,
+            templates_dir=paths.protocol_templates,
+            deliberation_ratifies=ratifies,
         )
         if not validation.ok or validation.header is None:
             return self._reply_json(

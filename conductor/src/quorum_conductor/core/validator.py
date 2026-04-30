@@ -61,12 +61,29 @@ def validate_move(
     *,
     expected_move_type: str | None,
     templates_dir: Path,
+    deliberation_ratifies: str | None = None,
 ) -> FullMoveValidation:
     """Run the full structural + anti-vacuousness validation.
 
     `templates_dir` should be the workspace's `protocol/templates/` (so
     edits to the workspace's own templates are honoured); falls back to
     the bundled templates if absent.
+
+    `deliberation_ratifies` is the value of the source deliberation's
+    `ratifies:` frontmatter field, if any. Used to enforce structural
+    constraints that depend on the deliberation's role — currently
+    just one: DROP is not permitted on the seed manifest deliberation
+    (the one that ratifies `outcome-manifest.md`). Letting DROP land
+    there leaves the manifest stuck in `DRAFTING` with no agent
+    available to retry, and without the manifest there's no plan to
+    work against — the workspace becomes meaningless.
+
+    Per-artifact ratification deliberations (e.g., the deliberation
+    that ratifies `recommendation.md`) are NOT protected by this
+    rule — the user must be free to drop work on a specific artifact
+    if they decide it's no longer relevant.
+
+    See `docs-specs/system-flow-stages.md` open question #1.
     """
     minimal = validate_minimal(text, expected_move_type=expected_move_type)
     if not minimal.ok or minimal.header is None:
@@ -101,6 +118,22 @@ def validate_move(
         errors.extend(_check_proposal_alternatives(move_sections))
     if move_type == "EXPLANATION":
         errors.extend(_check_explanation(move_sections))
+
+    # Structural rule: DROP is forbidden on the seed manifest
+    # deliberation. Per-artifact ratification deliberations remain
+    # DROP-able — the user may abandon work on a specific artifact.
+    if (
+        move_type == "DROP"
+        and deliberation_ratifies
+        and deliberation_ratifies.strip().lower() == "outcome-manifest.md"
+    ):
+        errors.append(
+            "DROP is not permitted on the seed deliberation (which "
+            "ratifies the outcome manifest). Without a ratified "
+            "manifest there is no plan to work against. Use DECISION "
+            "to ratify or OVERRIDE to terminate, then archive the "
+            "workspace if you want to abandon the project."
+        )
 
     return FullMoveValidation(
         ok=not errors,

@@ -346,6 +346,8 @@ def _run_attempt(
         normalized,
         expected_move_type=request.move_type,
         templates_dir=paths.protocol_templates,
+        deliberation_ratifies=str(request.deliberation.extras.get("ratifies", "") or "")
+        or None,
     )
     if not validation.ok or validation.header is None:
         _move_stream_to_failed(stream_path, paths, "validation_failed")

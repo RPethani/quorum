@@ -5,7 +5,7 @@ subprocess, so the test stays fast and assertions can read state at
 each step. Coverage:
 
   init → plan (creates seed) → step (runs one fake invocation)
-        → status (cost shows up) → archive → unarchive
+        → status (cost shows up) → archive
 
 This is the closest thing we have to a vertical-slice exercise from
 the conductor side. The real vertical slice (Phase 5) drives the same
@@ -123,18 +123,13 @@ def test_cli_full_flow(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyp
     assert "move_appended" in types
     assert "agent_completed" in types
 
-    # archive / unarchive round-trip.
+    # archive (one-way for v1; unarchive is intentionally not surfaced
+    # via CLI — see docs-specs/system-flow-stages.md Q6).
     assert main(["archive", "--path", str(workspace), "--reason", "test"]) == 0
     capsys.readouterr()
     assert main(["status", "--path", str(workspace)]) == 0
     out = capsys.readouterr().out
     assert "ARCHIVED" in out
-
-    assert main(["unarchive", "--path", str(workspace)]) == 0
-    capsys.readouterr()
-    assert main(["status", "--path", str(workspace)]) == 0
-    out = capsys.readouterr().out
-    assert "INITIALIZED" in out
 
 
 def test_cli_run_respects_cost_ceiling(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]

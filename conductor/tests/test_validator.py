@@ -218,3 +218,90 @@ def test_render_validation_feedback_lists_errors(tmp_path: Path) -> None:
     assert "failed validation" in feedback
     assert "Tagging" in feedback
     assert "Produce the move again" in feedback
+
+
+# ---------------------------------------------------------------------- #
+# DROP-on-seed rule (per system-flow-stages.md open question #1)
+#
+# Only the seed deliberation (the one that ratifies the outcome
+# manifest) is protected from DROP. Per-artifact ratification
+# deliberations remain DROP-able so the user can abandon work on
+# a specific artifact without abandoning the whole project.
+# ---------------------------------------------------------------------- #
+
+
+def _drop(targets: str = "PROPOSAL@claude-opus#0001") -> str:
+    return (
+        "### [DROP] @rakesh · 2026-04-30T10:00:00Z\n\n"
+        f"## Targets\n\n- {targets}\n\n"
+        "## Reason\n\nNo longer relevant.\n\n"
+        "## Disposition of partial work\n\nKeep the proposal as-is.\n"
+    )
+
+
+def test_drop_on_seed_deliberation_is_rejected(tmp_path: Path) -> None:
+    """DROP is forbidden on the seed manifest deliberation. Without a
+    ratified manifest there's no plan to work against, so the
+    workspace would be meaningless. See
+    `docs-specs/system-flow-stages.md` open question #1.
+    """
+    paths = _ws(tmp_path)
+    v = validate_move(
+        _drop(),
+        expected_move_type="DROP",
+        templates_dir=paths.protocol_templates,
+        deliberation_ratifies="outcome-manifest.md",
+    )
+    assert not v.ok
+    assert any("seed deliberation" in e for e in v.errors), v.errors
+    assert any("DECISION" in e and "OVERRIDE" in e for e in v.errors), v.errors
+
+
+def test_drop_on_artifact_ratification_is_allowed(tmp_path: Path) -> None:
+    """DROP IS allowed on per-artifact ratification deliberations.
+    The user can decide they no longer want to produce a specific
+    artifact, even mid-project. Only the seed (which ratifies the
+    manifest itself) is protected."""
+    paths = _ws(tmp_path)
+    v = validate_move(
+        _drop(),
+        expected_move_type="DROP",
+        templates_dir=paths.protocol_templates,
+        deliberation_ratifies="recommendation.md",
+    )
+    assert v.ok, v.errors
+
+
+def test_drop_on_regular_deliberation_is_allowed(tmp_path: Path) -> None:
+    """DROP is fine on a regular deliberation (no `ratifies:`)."""
+    paths = _ws(tmp_path)
+    v = validate_move(
+        _drop(),
+        expected_move_type="DROP",
+        templates_dir=paths.protocol_templates,
+        deliberation_ratifies=None,
+    )
+    assert v.ok, v.errors
+
+
+def test_drop_check_does_not_fire_for_decision_on_seed(tmp_path: Path) -> None:
+    """Sanity: only DROP is rejected on the seed. DECISION is the
+    happy path."""
+    paths = _ws(tmp_path)
+    decision = (
+        "### [DECISION] @rakesh · 2026-04-30T10:00:00Z\n\n"
+        "## Decision\n\nManifest ratified.\n\n"
+        "## Summary line\n\n"
+        "Adopt the strategic-decision template; we will work three artifacts.\n\n"
+        "## Rationale\n\nMatches the problem shape: one big call, options known.\n\n"
+        "## Path not taken\n\nNo template; freeform manifest. Set aside as risky.\n\n"
+        "## Spawns ADR?\n\nno\n\n"
+        "## Spawns task?\n\nno\n"
+    )
+    v = validate_move(
+        decision,
+        expected_move_type="DECISION",
+        templates_dir=paths.protocol_templates,
+        deliberation_ratifies="outcome-manifest.md",
+    )
+    assert v.ok, v.errors
