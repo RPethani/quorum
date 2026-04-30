@@ -8,6 +8,13 @@ from quorum_conductor.core.contributions import parse_contributions
 
 
 def _seed(path: Path, contributions: str = "") -> None:
+    """Seed a deliberation file with `## Contributions` as the last H2.
+
+    This matches the canonical template (see
+    `protocol/templates/deliberation.md`); move bodies use H2 sub-
+    headings, so Contributions has to be last for the parser to be
+    able to extract it cleanly.
+    """
     path.write_text(
         "---\n"
         'id: "0001"\n'
@@ -15,9 +22,9 @@ def _seed(path: Path, contributions: str = "") -> None:
         "status: OPEN\n"
         "---\n\n"
         "## Question\n\nWhat?\n\n"
-        f"## Contributions\n{contributions}\n"
         "## Open Questions\n\n"
-        "## Decision\n",
+        "## Decision\n\n"
+        f"## Contributions\n{contributions}",
         encoding="utf-8",
     )
 
@@ -46,19 +53,25 @@ def test_parse_collects_moves_in_order(tmp_path: Path) -> None:
     assert crits[0].author == "@gemini-pro"
 
 
-def test_parse_ignores_headers_outside_contributions(tmp_path: Path) -> None:
+def test_parse_ignores_headers_before_contributions(tmp_path: Path) -> None:
+    """Move headers above the `## Contributions` heading must be ignored.
+
+    `## Contributions` is the last H2 in the canonical template; H2
+    sub-headings inside move bodies (`## Position`, `## Decision`) are
+    therefore allowed without confusing the parser. But anything ABOVE
+    Contributions — e.g. a stray header in the Decision section — must
+    not be picked up.
+    """
     p = tmp_path / "0001.md"
     _seed(
         p,
         "\n### [PROPOSAL] @claude-opus · 2026-04-28T14:00:00Z\n\nbody\n",
     )
-    # Append a fake header line in the Decision section (after Contributions).
-    body = p.read_text(encoding="utf-8")
-    body = body.replace(
+    # Inject a fake header in the pre-Contributions Decision section.
+    body = p.read_text(encoding="utf-8").replace(
         "## Decision\n",
         "## Decision\n\n### [DECISION] @x · 2026-04-28T15:00:00Z\n\nbody\n",
     )
     p.write_text(body, encoding="utf-8")
     view = parse_contributions(p)
-    # Only the move under ## Contributions should be returned.
     assert [m.move_type for m in view.moves] == ["PROPOSAL"]

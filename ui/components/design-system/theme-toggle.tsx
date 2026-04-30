@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -32,22 +33,22 @@ export function ThemeToggle() {
       {OPTIONS.map(({ value, label, Icon }) => {
         const active = theme === value;
         return (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={active}
-            aria-label={label}
-            title={label}
-            onClick={() => setTheme(value)}
-            className={cn(
-              "inline-flex h-7 w-7 items-center justify-center rounded-sm transition-colors duration-100",
-              active
-                ? "bg-accent-primary-weak text-accent-primary"
-                : "text-fg-secondary hover:text-fg-primary",
-            )}
-          >
-            <Icon size={14} strokeWidth={1.5} />
-          </button>
+          <Tooltip key={value} label={label}>
+            <button
+              type="button"
+              aria-pressed={active}
+              aria-label={label}
+              onClick={() => setTheme(value)}
+              className={cn(
+                "inline-flex h-7 w-7 items-center justify-center rounded-sm transition-colors duration-100",
+                active
+                  ? "bg-accent-primary-weak text-accent-primary"
+                  : "text-fg-secondary hover:text-fg-primary",
+              )}
+            >
+              <Icon size={14} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
         );
       })}
     </div>

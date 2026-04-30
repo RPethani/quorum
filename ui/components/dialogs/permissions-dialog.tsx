@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { type PermissionRequestRow, decidePermission, getPermissions } from "@/lib/api/conductor";
+import { formatLocalTime } from "@/lib/format";
 import { Check, Loader2, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -169,30 +170,18 @@ function RequestRow({
           ) : null}
           {row.decided_by ? (
             <p className="mt-1 text-[11px] text-fg-tertiary">
-              {row.decided_at} · by {row.decided_by}
+              {formatLocalTime(row.decided_at)} · by {row.decided_by}
               {row.decision_reason ? ` — ${row.decision_reason}` : ""}
             </p>
           ) : null}
         </div>
         {onDecide ? (
           <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => onDecide(false)}
-              title="Deny"
-            >
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => onDecide(false)}>
               {busy ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
               Deny
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={busy}
-              onClick={() => onDecide(true)}
-              title="Approve"
-            >
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => onDecide(true)}>
               {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
               Approve
             </Button>

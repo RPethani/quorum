@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
+import { Tooltip } from "@/components/ui/tooltip";
 import { type AppendMovePayload, appendMove } from "@/lib/api/conductor";
 import { Loader2, Send, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -114,14 +115,16 @@ export function ComposeMoveForm({
             <CardTitle>
               Compose move <Badge variant="primary">#{deliberationId}</Badge>
             </CardTitle>
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={onClose}
-              className="text-fg-tertiary hover:text-fg-primary"
-            >
-              <X size={16} />
-            </button>
+            <Tooltip label="Close" side="bottom" align="end">
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={onClose}
+                className="text-fg-tertiary hover:text-fg-primary"
+              >
+                <X size={16} />
+              </button>
+            </Tooltip>
           </div>
           <p className="text-sm text-fg-secondary">
             Pick the move type, fill the required sections, submit. The conductor renders the

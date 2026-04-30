@@ -233,3 +233,39 @@ def test_invoke_timeout(tmp_path: Path) -> None:
     )
     result = invoke(request, paths)
     assert result.status == "timeout"
+
+
+def test_normalize_agent_response_strips_preamble_and_rewrites_header() -> None:
+    """Sloppy agents emit preamble + a wrong author + a hallucinated
+    timestamp. The normalizer must drop the preamble and rewrite the
+    header with the conductor's known author + a real timestamp,
+    leaving the body intact."""
+    from quorum_conductor.transport.invoker import _normalize_agent_response
+
+    sloppy = (
+        "I will read the protocol and produce a critique.\n\n"
+        "I will then think about it carefully.\n\n"
+        "### [CRITIQUE] @runtime/active/gemini--0003--CRITIQUE.start · 2099-01-01T00:00:00Z\n\n"
+        "## Strong objections\n\nThe matrix arithmetic is wrong.\n"
+    )
+    out = _normalize_agent_response(
+        sloppy, expected_author="@gemini", expected_move_type="CRITIQUE"
+    )
+    assert out.startswith("### [CRITIQUE] @gemini · ")
+    assert "I will read" not in out
+    assert "## Strong objections" in out
+    assert "matrix arithmetic" in out
+    # Hallucinated timestamp should be replaced with something current.
+    assert "2099-01-01" not in out
+
+
+def test_normalize_passes_through_when_no_header() -> None:
+    """If there's no canonical header at all, return the text unchanged
+    so the validator can produce the canonical 'missing header' error."""
+    from quorum_conductor.transport.invoker import _normalize_agent_response
+
+    raw = "This is just prose with no protocol header anywhere."
+    out = _normalize_agent_response(
+        raw, expected_author="@x", expected_move_type="PROPOSAL"
+    )
+    assert out == raw

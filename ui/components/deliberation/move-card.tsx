@@ -1,4 +1,4 @@
-import { HandleAvatar } from "@/components/design-system/handle-avatar";
+import { ParticipantAvatar } from "@/components/workspace/participant-avatar";
 import { cn } from "@/lib/utils";
 import type { ReactNode } from "react";
 
@@ -64,7 +64,7 @@ export function MoveCard({
       )}
     >
       <header className="flex items-center gap-3 text-xs">
-        <HandleAvatar handle={author} size="sm" />
+        <ParticipantAvatar participant={{ handle: author }} size={24} />
         <span
           className={cn(
             "label-caps font-mono font-semibold tracking-wide text-fg-primary",

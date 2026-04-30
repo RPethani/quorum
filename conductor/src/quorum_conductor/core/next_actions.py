@@ -138,7 +138,13 @@ def _resolve_phase(s: _Signals) -> WorkspacePhase:
     # outcome-manifest.md before real work can start.
     if s.seed_decided and s.manifest_status == "DRAFTING":
         return WorkspacePhase.NEEDS_MANIFEST_RATIFICATION
-    # Manifest ratified but no follow-up deliberations exist yet.
+    # NEEDS_FIRST_DELIBERATION is no longer reachable in normal flow:
+    # `workspace/auto_advance.py` opens the first artifact's
+    # deliberation as soon as the manifest is LOCKED. We keep the phase
+    # for migration cases where auto-advance failed (e.g. malformed
+    # manifest body that yields no artifact filenames). When that
+    # happens the user will see the original "start the first
+    # deliberation" banner — a real failure mode worth surfacing.
     if (
         s.seed_decided
         and s.manifest_status in {"READY", "LOCKED"}

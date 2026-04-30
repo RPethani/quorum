@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { Tooltip } from "@/components/ui/tooltip";
 import {
   type DigestionState,
   type ParticipantRow,
@@ -146,15 +147,16 @@ export function DigestionDialog({
                 </option>
               ))}
             </select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={applyBulkDigester}
-              disabled={bulkDigester === "__per-row__"}
-              title="Set the chosen digester on every pending row"
-            >
-              Apply
-            </Button>
+            <Tooltip label="Set the chosen digester on every pending row">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={applyBulkDigester}
+                disabled={bulkDigester === "__per-row__"}
+              >
+                Apply
+              </Button>
+            </Tooltip>
             <span className="ml-auto text-fg-tertiary">{pending.length} ready to run</span>
             <Button
               variant="primary"

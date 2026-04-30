@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogFooter } from "@/components/ui/dialog";
+import { Tooltip } from "@/components/ui/tooltip";
 import { type FsListing, listFs } from "@/lib/api/conductor";
 import { ChevronUp, FileText, Folder, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -62,15 +63,16 @@ export function FilePicker({
     >
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-sm">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => listing?.parent && void navigate(listing.parent)}
-            disabled={!listing?.parent || loading}
-            title="Up one directory"
-          >
-            <ChevronUp size={14} /> Up
-          </Button>
+          <Tooltip label="Up one directory">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => listing?.parent && void navigate(listing.parent)}
+              disabled={!listing?.parent || loading}
+            >
+              <ChevronUp size={14} /> Up
+            </Button>
+          </Tooltip>
           <code className="font-mono text-xs text-fg-secondary truncate">
             {listing?.path ?? "…"}
           </code>
@@ -116,7 +118,6 @@ export function FilePicker({
               variant="primary"
               onClick={() => listing && onPick(listing.path)}
               disabled={!listing || loading}
-              title="Pick the current directory"
             >
               Pick this directory
             </Button>

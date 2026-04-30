@@ -13,7 +13,6 @@ from pathlib import Path
 from .move_format import MoveHeader, parse_header
 
 _CONTRIB_HEADING = "## Contributions"
-_NEXT_H2_PREFIX = "## "
 
 
 @dataclass(frozen=True)
@@ -43,22 +42,15 @@ def parse_contributions(deliberation_path: Path) -> ContributionsView:
 
 
 def _extract_section(text: str) -> str:
+    """Return everything after `## Contributions`.
+
+    `## Contributions` is the LAST H2 in a deliberation file by design
+    (see `protocol/templates/deliberation.md`), so we don't look for a
+    closing H2: move bodies routinely use H2 sub-headings (`## Position`,
+    `## Decision`, `## Reasoning`) and stopping at the first one would
+    truncate the section. Anything after Contributions is contributions.
+    """
     idx = text.find(_CONTRIB_HEADING)
     if idx == -1:
         return ""
-    body_start = idx + len(_CONTRIB_HEADING)
-    # Find the next H2 after Contributions; everything between is the
-    # section body. Split on lines so a `## ` inside a fenced code block
-    # would only matter at column zero.
-    rest = text[body_start:]
-    end = len(rest)
-    cursor = 0
-    while cursor < len(rest):
-        line_end = rest.find("\n", cursor)
-        line_end = len(rest) if line_end == -1 else line_end
-        line = rest[cursor:line_end]
-        if line.startswith(_NEXT_H2_PREFIX):
-            end = cursor
-            break
-        cursor = line_end + 1
-    return rest[:end]
+    return text[idx + len(_CONTRIB_HEADING) :]

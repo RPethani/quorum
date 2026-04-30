@@ -92,6 +92,20 @@ def maybe_ratify_manifest(
             decided_by=_extract_decision_author(last.group(0)),
         )
     )
+
+    # Auto-advance: open the first artifact's ratification deliberation
+    # so the user never has to manually click "start the first
+    # deliberation". See workspace/auto_advance.py for the policy.
+    try:
+        from .auto_advance import maybe_open_next_artifact_deliberation
+
+        maybe_open_next_artifact_deliberation(paths)
+    except Exception:
+        # Auto-advance is best-effort. A failure here must never block
+        # the ratification itself — the user can fall back to creating
+        # a deliberation manually.
+        pass
+
     return True
 
 

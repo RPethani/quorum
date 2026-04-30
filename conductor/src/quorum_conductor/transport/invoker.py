@@ -23,6 +23,7 @@ implements:
 from __future__ import annotations
 
 import contextlib
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -32,7 +33,7 @@ from typing import Literal
 
 from ..core.decisions_summary import append_summary_line
 from ..core.deliberation import DeliberationMeta
-from ..core.move_format import MoveValidation
+from ..core.move_format import MoveValidation, strip_optional_code_fence
 from ..core.participants import Participant
 from ..core.prompts import PromptInputs, render_prompt
 from ..core.validator import (
@@ -327,8 +328,22 @@ def _run_attempt(
             error=f"agent exited with code {proc.returncode}",
         )
 
-    validation = validate_move(
+    # Normalize the agent's response before validation. Less-obedient
+    # models (Gemini in particular) tend to (a) emit a sentence or two
+    # of "I will read X then Y" preamble before the canonical header,
+    # (b) hallucinate an author handle from artifacts on disk, and
+    # (c) hallucinate a timestamp. The conductor authoritatively knows
+    # which agent it invoked and when, so we strip preamble and rewrite
+    # the header with the known values instead of failing every move
+    # over a few stray prose lines. Strictness on body sections is
+    # preserved by `validate_move` below.
+    normalized = _normalize_agent_response(
         proc.stdout,
+        expected_author=request.handle.handle,
+        expected_move_type=request.move_type,
+    )
+    validation = validate_move(
+        normalized,
         expected_move_type=request.move_type,
         templates_dir=paths.protocol_templates,
     )
@@ -348,9 +363,9 @@ def _run_attempt(
 
     try:
         with deliberation_lock(request.deliberation_path):
-            append_move(request.deliberation_path, proc.stdout)
+            append_move(request.deliberation_path, normalized)
             tagged = update_inboxes_from_move(
-                proc.stdout,
+                normalized,
                 inbox_dir=paths.inbox,
                 deliberation_id=request.deliberation.id,
                 move_type=validation.header.move_type,
@@ -364,7 +379,7 @@ def _run_attempt(
                 paths.summarized_decisions,
                 deliberation_id=request.deliberation.id,
                 header=validation.header,
-                move_text=proc.stdout,
+                move_text=normalized,
             )
             # Auto-ratify the outcome manifest if this DECISION lands
             # on a deliberation that ratifies it (design-doc §1.7).
@@ -406,6 +421,46 @@ def _run_attempt(
 # ---------------------------------------------------------------------- #
 # Helpers
 # ---------------------------------------------------------------------- #
+
+
+_HEADER_LINE_RE = re.compile(
+    r"^###\s+\[([A-Z_]+)\]\s+(@\S+)\s+·\s+(\S+)([^\n]*)$",
+    re.MULTILINE,
+)
+
+
+def _normalize_agent_response(
+    text: str,
+    *,
+    expected_author: str,
+    expected_move_type: str,
+) -> str:
+    """Strip preamble and authoritatively rewrite the header.
+
+    Less-obedient agents emit prose before the canonical header and
+    hallucinate the author handle / timestamp. The conductor knows both
+    values authoritatively (it picked the agent and the dispatch time),
+    so we rewrite them rather than failing the move over header
+    metadata. Body content is preserved verbatim so anti-vacuousness
+    checks still apply.
+
+    If no canonical header is found in the response at all, we return
+    the original text unchanged so the validator can produce a clear
+    "missing header" error.
+    """
+    cleaned = strip_optional_code_fence(text).lstrip()
+    match = _HEADER_LINE_RE.search(cleaned)
+    if match is None:
+        return text  # let validator emit its standard error
+    move_type, _author, _ts, header_tail = match.groups()
+    if move_type != expected_move_type:
+        # Wrong move type — the validator's "expected X got Y" error is
+        # the right thing to surface; don't paper over it.
+        return cleaned[match.start() :]
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_header = f"### [{move_type}] {expected_author} · {timestamp}{header_tail}"
+    body_after_header = cleaned[match.end() :]
+    return new_header + body_after_header
 
 
 def _spawn(

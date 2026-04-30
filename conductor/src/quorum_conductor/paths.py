@@ -149,6 +149,10 @@ class WorkspacePaths:
         return self.context / "notes"
 
     @property
+    def asks(self) -> Path:
+        return self.root / "asks"
+
+    @property
     def runtime(self) -> Path:
         return self.root / "runtime"
 
@@ -200,6 +204,7 @@ class WorkspacePaths:
             self.context_docs,
             self.context_notes,
             self.context_web,
+            self.asks,
             self.runtime,
             self.runtime_active,
             self.runtime_streams,

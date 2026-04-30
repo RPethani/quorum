@@ -12,12 +12,15 @@ import { SetupDialog } from "@/components/dialogs/setup-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ActivityFeed } from "@/components/workspace/activity-feed";
 import { ComposeMoveForm } from "@/components/workspace/compose-move-form";
 import { DeliberationsList } from "@/components/workspace/deliberations-list";
+import { HomeView } from "@/components/workspace/home-view";
 import { ManifestProgressBar } from "@/components/workspace/manifest-progress";
 import { NextStepsPanel } from "@/components/workspace/next-steps-panel";
 import { ParticipantsList } from "@/components/workspace/participants-list";
+import { SecondaryHeader } from "@/components/workspace/secondary-header";
 import {
   type DeliberationDetail,
   type DeliberationListItem,
@@ -34,24 +37,23 @@ import {
   getInboxes,
   getManifest,
   getNextActions,
+  getOpenAsks,
   getParticipants,
+  getPlan,
   getState,
   subscribeStream,
 } from "@/lib/api/conductor";
 import {
   BookOpen,
-  ChevronRight,
   Code2,
   FilePlus,
   KeyRound,
-  Loader2,
-  Plus,
-  RefreshCw,
-  RotateCw,
   Settings2,
+  SlidersHorizontal,
+  Sparkles,
   Wand2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * Phase-7 three-pane workspace shell. Polling-based; live WebSocket
@@ -90,6 +92,16 @@ export default function WorkspacePage() {
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [nextActions, setNextActions] = useState<NextAction[]>([]);
   const [digestionInFlight, setDigestionInFlight] = useState(0);
+  // Surface mode toggle. Default is Simple (Ask-based home view); the
+  // user can drop into Advanced for the original three-pane layout
+  // when they need the audit trail or to author moves manually.
+  const [mode, setMode] = useState<"simple" | "advanced">("simple");
+  const [reloadKey, setReloadKey] = useState(0);
+  const bumpReload = useCallback(() => setReloadKey((k) => k + 1), []);
+  // Source-of-truth counts for the secondary header pills. Pulled
+  // every refresh + every 5s so they don't drift.
+  const [agentsWorking, setAgentsWorking] = useState(0);
+  const [questionsForYou, setQuestionsForYou] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -136,6 +148,33 @@ export default function WorkspacePage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Poll the secondary-header counts. The previous "N composing /
+  // M pending for you" pills read from `activeMarkers` (SSE marker
+  // files that survive crashed subprocesses) and `inboxes` (which
+  // counts FYI tags as "for you"). Both gave wrong numbers. The
+  // accurate sources are:
+  //   agentsWorking  — non-manual planner items currently dispatchable
+  //   questionsForYou — open Asks (1 row = 1 actionable question)
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const [plan, asks] = await Promise.all([getPlan(), getOpenAsks().catch(() => [])]);
+        if (!alive) return;
+        setAgentsWorking(plan.items.filter((i) => !i.is_manual).length);
+        setQuestionsForYou(asks.length);
+      } catch {
+        // ignore blips
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 5000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
 
   // Lightweight digestion pulse — polls every 3s so we can flash a
   // "Digesting N…" chip in the header even when the dialog is closed.
@@ -198,6 +237,9 @@ export default function WorkspacePage() {
         void getNextActions()
           .then(setNextActions)
           .catch(() => {});
+        // Tell the Home view to re-fetch Asks; new moves often mean
+        // a new Ask appeared (or an existing one was satisfied).
+        bumpReload();
       },
       onActive: (markers) => setActiveMarkers(markers),
       onState: (s) => setState(s),
@@ -209,7 +251,7 @@ export default function WorkspacePage() {
       close();
       if (inboxesTimer) clearInterval(inboxesTimer);
     };
-  }, []);
+  }, [bumpReload]);
 
   useEffect(() => {
     if (selectedId) {
@@ -221,31 +263,18 @@ export default function WorkspacePage() {
     }
   }, [selectedId]);
 
-  const yourTurn = useMemo(
-    () =>
-      inboxes.find((ib) => ib.handle.toLowerCase().includes("human") && ib.pending_count > 0) ??
-      null,
-    [inboxes],
-  );
-
   return (
     <div className="flex h-screen flex-col bg-canvas text-fg-primary">
       <Header
-        state={state}
-        loading={loading}
-        onRefresh={refresh}
+        mode={mode}
+        onModeChange={setMode}
         onOpenSetup={() => setSetupOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenContext={() => setContextOpen(true)}
-        onOpenDigestion={() => setDigestionOpen(true)}
         onOpenPermissions={() => setPermissionsOpen(true)}
         onOpenRawEditor={() => setRawEditorOpen(true)}
         onNewDeliberation={() => setNewDelibOpen(true)}
         showSetup={setupNeeded ?? false}
-        yourTurnPending={yourTurn?.pending_count ?? 0}
-        activeCount={activeMarkers.length}
-        digestionInFlight={digestionInFlight}
-        streamConnected={streamConnected}
       />
       {error ? (
         <div className="border-b border-accent-danger bg-accent-danger-weak px-6 py-2 text-sm text-accent-danger">
@@ -265,111 +294,100 @@ export default function WorkspacePage() {
           else if (id === "new-deliberation") setNewDelibOpen(true);
         }}
       />
-      <div className="flex flex-1 min-h-0">
-        <aside className="w-[280px] shrink-0 border-r border-border-default bg-recessed flex flex-col">
-          <div className="px-4 py-3 border-b border-border-default">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
-              Deliberations
-            </h2>
+      <SecondaryHeader
+        state={state}
+        participants={participants}
+        agentsWorking={agentsWorking}
+        questionsForYou={questionsForYou}
+        streamConnected={streamConnected}
+        onParticipantClick={() => setSettingsOpen(true)}
+        onAddParticipant={() => setAddAgentOpen(true)}
+      />
+      {mode === "simple" ? (
+        <main className="flex flex-1 min-h-0 min-w-0">
+          <div className="w-1/2 min-w-0 border-r border-border-default flex flex-col">
+            <HomeView events={events} deliberations={list} reloadKey={reloadKey} />
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <DeliberationsList items={list} selectedId={selectedId} onSelect={setSelectedId} />
+          <div className="w-1/2 min-w-0 flex items-center justify-center">
+            <p className="text-sm text-fg-tertiary px-6 text-center">
+              Reserved space — coming soon.
+            </p>
           </div>
-          <div className="border-t border-border-default p-4">
-            <ManifestProgressBar progress={manifest?.progress ?? null} />
-          </div>
-        </aside>
+        </main>
+      ) : (
+        <div className="flex flex-1 min-h-0">
+          <aside className="w-[280px] shrink-0 border-r border-border-default bg-recessed flex flex-col">
+            <div className="px-4 py-3 border-b border-border-default">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
+                Deliberations
+              </h2>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <DeliberationsList items={list} selectedId={selectedId} onSelect={setSelectedId} />
+            </div>
+            <div className="border-t border-border-default p-4">
+              <ManifestProgressBar progress={manifest?.progress ?? null} />
+            </div>
+          </aside>
 
-        <main className="flex-1 min-w-0 overflow-y-auto">
-          {active ? (
-            <article className="mx-auto max-w-3xl px-6 py-6">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h1 className="text-xl font-semibold">
-                  <span className="font-mono text-fg-tertiary">#{active.id}</span> {active.title}
-                </h1>
-                <Badge variant={badgeForState(active.status)}>{active.status}</Badge>
-              </div>
-              {active.human_next_action ? (
-                <div className="mb-3 rounded-md border border-accent-primary/40 bg-accent-primary-weak px-3 py-2.5">
-                  <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-accent-primary">
-                    Your turn ·{" "}
-                    <span className="font-mono">{active.human_next_action.move_type}</span>
+          <main className="flex-1 min-w-0 overflow-y-auto">
+            {active ? (
+              <article className="mx-auto max-w-3xl px-6 py-6">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h1 className="text-xl font-semibold">
+                    <span className="font-mono text-fg-tertiary">#{active.id}</span> {active.title}
+                  </h1>
+                  <Badge variant={badgeForState(active.status)}>{active.status}</Badge>
+                </div>
+                {active.human_next_action ? (
+                  <div className="mb-3 rounded-md border border-accent-primary/40 bg-accent-primary-weak px-3 py-2.5">
+                    <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-accent-primary">
+                      Your turn ·{" "}
+                      <span className="font-mono">{active.human_next_action.move_type}</span>
+                    </div>
+                    <p className="mt-1 text-sm">{active.human_next_action.expected}</p>
+                    <div className="mt-2.5">
+                      <Button variant="primary" size="sm" onClick={() => setComposeOpen(true)}>
+                        Compose {active.human_next_action.move_type}
+                      </Button>
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm">{active.human_next_action.expected}</p>
-                  <div className="mt-2.5">
+                ) : (
+                  <div className="mb-3">
                     <Button variant="primary" size="sm" onClick={() => setComposeOpen(true)}>
-                      Compose {active.human_next_action.move_type}
+                      Compose move
                     </Button>
                   </div>
-                </div>
-              ) : (
-                <div className="mb-3">
-                  <Button variant="primary" size="sm" onClick={() => setComposeOpen(true)}>
-                    Compose move
-                  </Button>
-                </div>
-              )}
-              <Separator />
-              <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-md border border-border-default bg-recessed p-4 font-mono text-xs leading-relaxed">
-                {active.markdown}
-              </pre>
-            </article>
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-              <p className="text-sm text-fg-tertiary">
-                {list.length
-                  ? "Select a deliberation from the left."
-                  : "No deliberations yet. The seed is opened automatically when you run “quorum step” or “quorum start”."}
-              </p>
-            </div>
-          )}
-        </main>
-
-        <aside className="w-[360px] shrink-0 border-l border-border-default flex flex-col">
-          <div className="px-4 py-3 border-b border-border-default flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
-              Activity
-            </h2>
-            <span className="font-mono text-xs text-fg-tertiary">{events.length} events</span>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <ActivityFeed events={events} />
-          </div>
-          <div className="border-t border-border-default py-3">
-            <div className="px-4 mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
-                Participants
-              </h2>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void getParticipants().then(setParticipants);
-                    void getNextActions()
-                      .then(setNextActions)
-                      .catch(() => {});
-                  }}
-                  className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
-                  title="Verify CLIs are reachable"
-                  aria-label="Verify participants"
-                >
-                  <RefreshCw size={14} strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAddAgentOpen(true)}
-                  className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
-                  title="Add an agent"
-                  aria-label="Add an agent"
-                >
-                  <Plus size={14} strokeWidth={2} />
-                </button>
+                )}
+                <Separator />
+                <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-md border border-border-default bg-recessed p-4 font-mono text-xs leading-relaxed">
+                  {active.markdown}
+                </pre>
+              </article>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+                <p className="text-sm text-fg-tertiary">
+                  {list.length
+                    ? "Select a deliberation from the left."
+                    : "No deliberations yet. The seed is opened automatically when you run “quorum step” or “quorum start”."}
+                </p>
               </div>
+            )}
+          </main>
+
+          <aside className="w-[360px] shrink-0 border-l border-border-default flex flex-col">
+            <div className="px-4 py-3 border-b border-border-default flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-tertiary">
+                Activity
+              </h2>
+              <span className="font-mono text-xs text-fg-tertiary">{events.length} events</span>
             </div>
-            <ParticipantsList participants={participants} />
-          </div>
-        </aside>
-      </div>
+            <div className="flex-1 overflow-y-auto">
+              <ActivityFeed events={events} />
+            </div>
+          </aside>
+        </div>
+      )}
       {composeOpen && active ? (
         <ComposeMoveForm
           deliberationId={active.id}
@@ -429,84 +447,36 @@ export default function WorkspacePage() {
 }
 
 function Header({
-  state,
-  loading,
-  onRefresh,
+  mode,
+  onModeChange,
   onOpenSetup,
   onOpenSettings,
   onOpenContext,
-  onOpenDigestion,
   onOpenPermissions,
   onOpenRawEditor,
   onNewDeliberation,
   showSetup,
-  yourTurnPending,
-  activeCount,
-  digestionInFlight,
-  streamConnected,
 }: {
-  state: WorkspaceStateResponse | null;
-  loading: boolean;
-  onRefresh: () => void;
+  mode: "simple" | "advanced";
+  onModeChange: (m: "simple" | "advanced") => void;
   onOpenSetup: () => void;
   onOpenSettings: () => void;
   onOpenContext: () => void;
-  onOpenDigestion: () => void;
   onOpenPermissions: () => void;
   onOpenRawEditor: () => void;
   onNewDeliberation: () => void;
   showSetup: boolean;
-  yourTurnPending: number;
-  activeCount: number;
-  digestionInFlight: number;
-  streamConnected: boolean;
 }) {
-  const costPct = state ? Math.round((state.cost.fraction || 0) * 100) : 0;
+  // Identity, surface-mode toggle, and dialog access. Spend, state,
+  // participants, and other operational signals live in the secondary
+  // header so this row stays calm.
   return (
     <header className="flex items-center justify-between gap-4 border-b border-border-default bg-elevated px-6 py-3">
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-4 min-w-0">
         <span className="font-semibold tracking-tight">Quorum</span>
-        <ChevronRight size={14} className="text-fg-tertiary" strokeWidth={1.5} />
-        <span className="font-mono text-sm text-fg-secondary truncate">
-          {state ? state.workspace_id.slice(0, 12) : "…"}
-        </span>
-        {state ? <Badge variant={badgeForState(state.state)}>{state.state}</Badge> : null}
-        {state ? (
-          <span
-            className={`font-mono text-xs ${
-              costPct > 80 ? "text-accent-warning" : "text-fg-tertiary"
-            }`}
-          >
-            ${state.cost.spent_usd.toFixed(2)} / ${state.cost.ceiling_usd.toFixed(2)} ({costPct}%)
-          </span>
-        ) : null}
-        {activeCount > 0 ? (
-          <Badge variant="primary" className="composing-pulse">
-            {activeCount} composing
-          </Badge>
-        ) : null}
-        {digestionInFlight > 0 ? (
-          <button
-            type="button"
-            onClick={onOpenDigestion}
-            className="inline-flex items-center gap-1.5 rounded-full border border-accent-primary/40 bg-accent-primary-weak px-2.5 py-0.5 text-xs font-medium text-accent-primary hover:border-accent-primary transition-colors"
-            title="Open digestion panel"
-          >
-            <Loader2 size={12} className="animate-spin" />
-            Digesting {digestionInFlight}…
-          </button>
-        ) : null}
+        <ModeToggle mode={mode} onChange={onModeChange} />
       </div>
       <div className="flex items-center gap-2">
-        <span
-          className="font-mono text-xs text-fg-tertiary"
-          title={streamConnected ? "Live: SSE connected" : "Polling fallback"}
-        >
-          {streamConnected ? "● live" : "○ polling"}
-        </span>
-        {yourTurnPending > 0 ? (
-          <Badge variant="warning">{yourTurnPending} pending for you</Badge>
-        ) : null}
         {showSetup ? (
           <IconBtn onClick={onOpenSetup} title="Run first-time setup">
             <Wand2 size={14} />
@@ -527,12 +497,53 @@ function Header({
         <IconBtn onClick={onOpenRawEditor} title="Raw editor (advanced)">
           <Code2 size={14} />
         </IconBtn>
-        <IconBtn onClick={onRefresh} disabled={loading} title="Refresh">
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
-        </IconBtn>
         <ThemeToggle />
       </div>
     </header>
+  );
+}
+
+const MODE_OPTIONS = [
+  { value: "simple", label: "Simple", Icon: Sparkles },
+  { value: "advanced", label: "Advanced", Icon: SlidersHorizontal },
+] as const;
+
+function ModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: "simple" | "advanced";
+  onChange: (m: "simple" | "advanced") => void;
+}) {
+  // Same segmented-control shape as ThemeToggle: bordered container
+  // with `p-0.5` so the active segment has visible inset. Icon-only
+  // buttons; label appears on hover via the `title` attribute.
+  return (
+    <div
+      aria-label="Surface mode"
+      className="inline-flex items-center gap-0 rounded-md border border-border-default bg-elevated p-0.5"
+    >
+      {MODE_OPTIONS.map(({ value, label, Icon }) => {
+        const active = mode === value;
+        return (
+          <Tooltip key={value} label={label}>
+            <button
+              type="button"
+              aria-pressed={active}
+              aria-label={label}
+              onClick={() => onChange(value)}
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-sm transition-colors duration-100 ${
+                active
+                  ? "bg-accent-primary-weak text-accent-primary"
+                  : "text-fg-secondary hover:text-fg-primary"
+              }`}
+            >
+              <Icon size={14} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
+        );
+      })}
+    </div>
   );
 }
 
@@ -548,16 +559,17 @@ function IconBtn({
   title: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      aria-label={title}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-default text-fg-secondary hover:bg-recessed hover:text-fg-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-    >
-      {children}
-    </button>
+    <Tooltip label={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={title}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-default text-fg-secondary hover:bg-recessed hover:text-fg-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 

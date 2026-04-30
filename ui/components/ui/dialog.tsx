@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import { useEffect } from "react";
+import { Tooltip } from "./tooltip";
 
 /**
  * Minimal modal primitive — fixed-overlay + centered card. We avoid the
@@ -69,14 +70,16 @@ export function Dialog({
             <h2 className="text-base font-semibold tracking-tight">{title}</h2>
             {description ? <p className="mt-1 text-sm text-fg-secondary">{description}</p> : null}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
+          <Tooltip label="Close" side="bottom" align="end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-fg-tertiary hover:bg-recessed hover:text-fg-primary transition-colors"
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+          </Tooltip>
         </div>
         <div className="px-6 py-5">{children}</div>
       </dialog>

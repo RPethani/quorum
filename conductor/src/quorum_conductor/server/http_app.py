@@ -71,6 +71,7 @@ from ..workspace import (
     status_summary,
 )
 from .raw_files import whitelist as raw_whitelist
+from .autoloop import AutoLoop
 from .stream import StreamHub, format_sse
 
 DEFAULT_HOST = "127.0.0.1"
@@ -83,12 +84,14 @@ class _ServerContext:
 
 
 class QuorumHTTPServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer carrying a `WorkspacePaths` reference and the SSE hub."""
+    """ThreadingHTTPServer carrying a `WorkspacePaths` reference, the SSE hub,
+    and the auto-loop background ticker."""
 
     daemon_threads = True  # let SSE-handler threads die with the server.
 
     paths: WorkspacePaths
     stream_hub: StreamHub | None = None
+    autoloop: AutoLoop | None = None
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         """Silently drop connection-reset / broken-pipe noise.
@@ -121,6 +124,7 @@ def create_server(
     server = QuorumHTTPServer((host, port), QuorumHandler)
     server.paths = paths
     server.stream_hub = StreamHub(paths)
+    server.autoloop = AutoLoop(paths)
     return server
 
 
@@ -192,6 +196,10 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._reply_permissions_list()
             if path == "/api/next-actions":
                 return self._reply_next_actions()
+            if path == "/api/asks":
+                return self._reply_asks_list()
+            if path.startswith("/api/asks/"):
+                return self._reply_ask(path[len("/api/asks/") :])
             if path == "/api/settings":
                 return self._reply_settings()
             if path == "/api/fs/list":
@@ -233,6 +241,9 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return self._handle_url_refresh()
             if url.path == "/api/deliberations":
                 return self._handle_deliberation_create()
+            if url.path.startswith("/api/asks/") and url.path.endswith("/answer"):
+                ask_id = url.path[len("/api/asks/") : -len("/answer")]
+                return self._handle_ask_answer(ask_id)
             if url.path.startswith("/api/permissions/") and url.path.endswith("/approve"):
                 rid = url.path[len("/api/permissions/") : -len("/approve")]
                 return self._handle_permission_decide(rid, approve=True)
@@ -1034,6 +1045,71 @@ class QuorumHandler(BaseHTTPRequestHandler):
             {"id": slug_id, "filename": target.name},
         )
 
+    # ------------------ Asks ------------------------------------------- #
+
+    def _reply_asks_list(self) -> None:
+        """Return open Asks (regenerated to reflect current planner state).
+
+        We regenerate before listing so the UI never shows a stale Ask
+        for a deliberation that has already moved on. This is cheap and
+        keeps the source-of-truth on the server, not the client.
+        """
+        from ..workspace.ask_generator import regenerate_asks
+        from ..workspace.asks import list_asks
+
+        paths = self.server.paths
+        try:
+            regenerate_asks(paths)
+        except Exception:
+            pass  # listing should never 500 because of generator hiccups
+        asks = list_asks(paths)
+        self._reply_json(
+            HTTPStatus.OK,
+            {"asks": [a.to_dict() for a in asks]},
+        )
+
+    def _reply_ask(self, ask_id: str) -> None:
+        from ..workspace.asks import get_ask
+
+        paths = self.server.paths
+        ask = get_ask(paths, ask_id)
+        if ask is None:
+            return self._reply_json(
+                HTTPStatus.NOT_FOUND, {"error": f"ask {ask_id} not found"}
+            )
+        self._reply_json(HTTPStatus.OK, ask.to_dict())
+
+    def _handle_ask_answer(self, ask_id: str) -> None:
+        """Apply an Ask answer.
+
+        Body: shape-specific payload (see `validate_answer` in
+        `workspace.asks`). Optional `author` field overrides the
+        detected human handle; useful for tests.
+        """
+        from ..workspace.ask_answerer import AnswerError, answer_ask
+
+        paths = self.server.paths
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+
+        author = str(payload.get("author") or "").strip()
+        if not author:
+            author = _detect_human_handle(paths) or "@human"
+        answer = payload.get("answer")
+        if not isinstance(answer, dict):
+            return self._reply_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "answer must be a JSON object"},
+            )
+
+        try:
+            ask = answer_ask(paths, ask_id, answer=answer, author=author)
+        except AnswerError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        self._reply_json(HTTPStatus.OK, ask.to_dict())
+
     def _handle_url_refresh(self) -> None:
         """Re-fetch a registered URL.
 
@@ -1523,7 +1599,39 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 self._rename_human_handle(paths, handle)
                 applied.append("human_handle")
 
+        # Setup is "done enough" if a problem statement exists. Flip
+        # the workspace to ACTIVE so the auto-loop starts ticking
+        # without the user having to run `quorum step` or click step
+        # in the UI. Idempotent — already-ACTIVE workspaces are a
+        # no-op.
+        if self._activate_if_ready(paths):
+            applied.append("state.active")
+
         self._reply_json(HTTPStatus.OK, {"applied": applied})
+
+    @staticmethod
+    def _activate_if_ready(paths: WorkspacePaths) -> bool:
+        """Flip state.state to ACTIVE if setup looks complete and we're
+        not already ACTIVE. Returns True if a flip occurred."""
+        from ..workspace.state import WorkspaceState, load_state, save_state
+
+        if not paths.problem_statement.is_file():
+            return False
+        try:
+            text = paths.problem_statement.read_text(encoding="utf-8").strip()
+        except OSError:
+            return False
+        if not text or text.startswith("# Problem Statement\n\n## What I'm trying to figure out"):
+            return False  # placeholder, not a real statement
+        try:
+            state = load_state(paths.state_yaml)
+        except Exception:
+            return False
+        if state.state is WorkspaceState.ACTIVE:
+            return False
+        state.state = WorkspaceState.ACTIVE
+        save_state(paths.state_yaml, state)
+        return True
 
     @staticmethod
     def _rename_human_handle(paths: WorkspacePaths, new_handle: str) -> None:

@@ -319,6 +319,69 @@ export async function getNextActions(): Promise<NextAction[]> {
   return body.actions;
 }
 
+// ----- Asks ----------------------------------------------------------- //
+
+export type AskShape = "confirm" | "pick_one" | "pick_any" | "write";
+export type AskStatus = "open" | "answered" | "closed";
+
+export type AskOption = {
+  value: string;
+  label: string;
+  summary?: string;
+  expand?: string;
+};
+
+export type Ask = {
+  id: string;
+  schema_version: number;
+  created_at: string;
+  status: AskStatus;
+  question: string;
+  why: string;
+  shape: AskShape;
+  source_deliberation: string;
+  source_move_id: string;
+  target_move_type: string;
+  options?: AskOption[];
+  min_select?: number;
+  max_select?: number;
+  default_value?: string | null;
+  answered_at?: string;
+  answer?: Record<string, unknown>;
+  closed_reason?: string;
+};
+
+export async function getAsks(): Promise<Ask[]> {
+  const body = await getJSON<{ asks: Ask[] }>("/api/asks");
+  return body.asks;
+}
+
+export async function getOpenAsks(): Promise<Ask[]> {
+  const all = await getAsks();
+  return all.filter((a) => a.status === "open");
+}
+
+export async function getAsk(id: string): Promise<Ask> {
+  return getJSON<Ask>(`/api/asks/${id}`);
+}
+
+export async function answerAsk(
+  id: string,
+  payload: { answer: Record<string, unknown>; author?: string },
+): Promise<Ask> {
+  const res = await fetchOrFriendlyError(`${base()}/api/asks/${id}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Answer failed: ${res.status}`);
+  }
+  return (await res.json()) as Ask;
+}
+
 export type AddAgentPayload = {
   handle: string;
   display_name?: string;
