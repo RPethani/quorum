@@ -9,6 +9,7 @@ import { PermissionsDialog } from "@/components/dialogs/permissions-dialog";
 import { RawEditorDialog } from "@/components/dialogs/raw-editor-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { SetupDialog } from "@/components/dialogs/setup-dialog";
+import { SystemFlowDiagram } from "@/components/flow/system-flow-diagram";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -305,13 +306,11 @@ export default function WorkspacePage() {
       />
       {mode === "simple" ? (
         <main className="flex flex-1 min-h-0 min-w-0">
-          <div className="w-1/2 min-w-0 border-r border-border-default flex flex-col">
+          <div className="w-[30%] min-w-0 border-r border-border-default flex flex-col">
             <HomeView events={events} deliberations={list} reloadKey={reloadKey} />
           </div>
-          <div className="w-1/2 min-w-0 flex items-center justify-center">
-            <p className="text-sm text-fg-tertiary px-6 text-center">
-              Reserved space — coming soon.
-            </p>
+          <div className="w-[70%] min-w-0">
+            <SystemFlowDiagram reloadKey={reloadKey} />
           </div>
         </main>
       ) : (

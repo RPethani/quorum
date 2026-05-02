@@ -25,12 +25,20 @@ export function Tooltip({
   side = "bottom",
   align = "center",
   className,
+  triggerClassName,
   children,
 }: {
   label: string;
   side?: "top" | "bottom";
   align?: "start" | "center" | "end";
+  /** Class names applied to the floating tooltip label. */
   className?: string;
+  /**
+   * Class names applied to the wrapper span around the trigger. Useful
+   * when the default `inline-flex` collapses to content width and you
+   * need the trigger to fill its parent (pass `!flex w-full`).
+   */
+  triggerClassName?: string;
   children: ReactNode;
 }) {
   const sideClass = side === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5";
@@ -40,7 +48,7 @@ export function Tooltip({
     end: "right-0",
   }[align];
   return (
-    <span className="group relative inline-flex">
+    <span className={cn("group relative inline-flex", triggerClassName)}>
       {children}
       <span
         role="tooltip"
