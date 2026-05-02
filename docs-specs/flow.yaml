@@ -1,0 +1,187 @@
+# Master flow schema — single source of truth.
+#
+# This file enumerates the stages, sub-steps, transitions, and pause
+# conditions of the Quorum master flow. The live system-flow diagram
+# (`ui/components/flow/system-flow-diagram.tsx`) reads from
+# `lib/flow/types.ts` (which mirrors this schema in TypeScript) and
+# renders accordingly.
+#
+# Rules of engagement (enforced by `.claude/rules/visual-flow.md`):
+#   - If you change a stage, sub-step, transition trigger, or pause
+#     condition in the conductor source, update this file in the same
+#     commit AND keep `lib/flow/types.ts` and `lib/flow/derive.ts`
+#     aligned.
+#   - The doc `docs-specs/system-flow-stages.md` is the prose spec.
+#     This YAML is the machine-readable mirror.
+
+stages:
+  - id: S1
+    name: Initialise
+    rendering: hidden  # too transient to deserve real estate
+    enter:
+      trigger: "`quorum init` runs (CLI only)"
+      detection: "state.state == INITIALIZED AND no setup data"
+    leave:
+      trigger: "any setup edit"
+
+  - id: S2
+    name: Set up
+    rendering: setup-checklist
+    enter:
+      detection: "state.state == INITIALIZED AND setup activity"
+    leave:
+      trigger: "user clicks Start collaboration"
+      bar:
+        - problem_statement_non_empty
+        - cli_participants_min_one
+        - digestion_idle
+        - participants_reachable_or_user_acked
+      side_effect: "state.state INITIALIZED → ACTIVE"
+    sub_block_phases:
+      - NEEDS_DIGESTION
+
+  - id: S3
+    name: Draft the plan
+    rendering: move-sequence-single
+    enter:
+      detection: "state.state == ACTIVE AND seed deliberation #0001 not terminal"
+      side_effect: "autoloop's first tick scaffolds seed deliberation #0001"
+    inner_loop: per_deliberation_move_sequence
+    leave:
+      trigger:
+        - DECISION on #0001
+        - OVERRIDE on #0001
+      side_effect:
+        - "manifest_status DRAFTING → LOCKED via maybe_ratify_manifest"
+        - "auto_advance opens first artifact ratification deliberation"
+    recovery_states:
+      - id: NEEDS_MANIFEST_RATIFICATION
+        condition: "seed terminal AND manifest still DRAFTING"
+        recovery: "user manually edits outcome-manifest.md via Raw editor"
+
+  - id: S4
+    name: Work the artifacts
+    rendering: doc-gallery + active-sub-flow
+    enter:
+      detection: "manifest_status == LOCKED AND not all artifact deliberations terminal"
+    inner_loop: per_deliberation_move_sequence  # one per artifact
+    invariant: "exactly one artifact deliberation non-terminal at a time (auto-advance)"
+    multiplexing:
+      allowed: true
+      trigger: REOPEN
+      note: "free multiplexing per Q3 resolution; cross-artifact coordination is a separate concern"
+    leave:
+      trigger: "every artifact terminal AND user triggers Wrap up (S5) OR archives"
+
+  - id: S5
+    name: Wrap up
+    rendering: move-sequence-single
+    optional: true
+    user_triggered: true
+    not_implemented: true  # placeholder until the closing flow is built
+    enter:
+      trigger: "user clicks Wrap up"
+    inner_loop: per_deliberation_move_sequence
+    produces:
+      filename: summary.md
+      sections:
+        - project_question
+        - per_artifact_recap
+        - path_not_taken
+        - calibrated_confidence
+        - open_followups
+    leave:
+      trigger:
+        - DECISION on closing deliberation
+        - OVERRIDE on closing deliberation
+      side_effect:
+        - "state.state ACTIVE → COMPLETED"
+        - "manifest.final_deliberation_id = closing_id"
+
+  - id: S6
+    name: Archived
+    rendering: static-panel
+    enter:
+      trigger: "user archives (CLI: `quorum archive`)"
+      side_effect:
+        - "state.state ANY → ARCHIVED"
+        - "runtime/* torn down"
+    leave: none  # disallowed in v1 per Q6
+
+per_deliberation_move_sequence:
+  steps:
+    - id: propose
+      move_type: PROPOSAL
+      label: Propose
+    - id: critique
+      move_type: CRITIQUE
+      label: Critique
+    - id: synthesise
+      move_type: SYNTHESIS
+      label: Synthesise
+    - id: decide
+      move_types: [DECISION, OVERRIDE]
+      label: Decide
+  side_branches:
+    - QUESTION/ANSWER
+    - INTERJECTION
+    - STEER
+    - REVISION
+    - REOPEN
+    - CLARIFY/EXPLANATION
+  terminal_moves:
+    - DECISION    # → DECIDED
+    - OVERRIDE    # → DECIDED
+    - DROP        # → ABANDONED (forbidden on seed; allowed on artifacts)
+
+orthogonal_pause_conditions:
+  - id: AWAITING_HUMAN
+    label: Your turn — answer the question
+    border: warning
+    detection: "any open Ask"
+    unblocked_by: "user answers the Ask"
+  - id: AGENTS_UNREACHABLE
+    label: Paused — every agent failing
+    border: danger
+    detection: "state.state == PAUSED via autoloop"
+    unblocked_by: "user fixes participants and reactivates"
+  - id: AWAITING_PERMISSION
+    label: An agent needs permission
+    border: warning
+    detection: "pending permission requests > 0"
+    unblocked_by: "user approves/denies in Permissions dialog"
+  - id: BLOCKED_ON_ROUTING
+    label: Couldn't route — fix the participant or routing
+    border: danger
+    scope: per-deliberation
+    detection: "deliberation.status starts with BLOCKED_ON_ROUTING"
+    unblocked_by: "user adds participant or fixes routing"
+  - id: COST_CEILING
+    label: Spend ceiling reached
+    border: warning
+    detection: "cost.fraction >= 1 AND cost.enforce"
+    unblocked_by: "user raises cost_ceiling_usd or ends project"
+  - id: NEEDS_MANIFEST_RATIFICATION
+    label: Manifest needs ratification
+    border: warning
+    scope: S3-only
+    detection: "seed terminal AND manifest_status != LOCKED"
+    unblocked_by: "user manually edits outcome-manifest.md"
+
+workspace_state_machine:
+  enum: [INITIALIZED, READY, ACTIVE, PAUSED, COMPLETED, COMPLETED_AUTONOMOUS, ARCHIVED]
+  used_in_code:
+    INITIALIZED: yes
+    READY: no   # defined but never set
+    ACTIVE: yes
+    PAUSED: yes
+    COMPLETED: no   # defined; will be set when S5 ships
+    COMPLETED_AUTONOMOUS: no   # defined; will be set when S5 ships
+    ARCHIVED: yes
+
+manifest_status_machine:
+  enum: [DRAFTING, READY, LOCKED]
+  used_in_code:
+    DRAFTING: yes
+    READY: partial   # tolerated as "don't bootstrap" signal; never written automatically
+    LOCKED: yes      # set by maybe_ratify_manifest
