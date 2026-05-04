@@ -1,6 +1,7 @@
 "use client";
 
 import { Dialog } from "@/components/ui/dialog";
+import { Markdown } from "@/components/ui/markdown";
 import { ParticipantAvatar } from "@/components/workspace/participant-avatar";
 import {
   CanvasApiError,
@@ -78,8 +79,8 @@ export function MessageRow({
         {isSystem ? (
           <SystemErrorBody body={visible} />
         ) : (
-          <div className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-fg-primary">
-            {visible}
+          <div className="mt-0.5">
+            <Markdown body={visible} colorMentions />
           </div>
         )}
 

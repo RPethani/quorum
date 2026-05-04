@@ -100,6 +100,7 @@ def serve_forever(
     on_listen: Any = None,
 ) -> None:
     """Bind and serve until interrupted."""
+    _warn_on_arch_mismatch()
     server = create_server(paths, host=host, port=port)
     if on_listen is not None:
         on_listen(server.server_address)
@@ -107,6 +108,46 @@ def serve_forever(
         server.serve_forever()
     finally:
         server.server_close()
+
+
+def _warn_on_arch_mismatch() -> None:
+    """Emit a loud stderr warning when the conductor is running under
+    Rosetta on Apple Silicon — child CLIs (codex, etc.) will fail with
+    confusing "missing optional dependency" errors. Catches the case
+    silently so future users don't have to debug it from scratch.
+    """
+    import platform
+    import subprocess as _sp
+
+    if platform.system() != "Darwin":
+        return
+    if platform.machine() != "x86_64":
+        return  # interpreter is already arm64 — fine
+    try:
+        kernel = _sp.run(
+            ["uname", "-m"], capture_output=True, text=True, timeout=2, check=False
+        ).stdout.strip()
+    except (FileNotFoundError, _sp.TimeoutExpired):
+        return
+    if kernel != "arm64":
+        return  # genuine Intel Mac
+
+    msg = (
+        "\n"
+        "═══════════════════════════════════════════════════════════════════\n"
+        "  WARNING — conductor is running under Rosetta on Apple Silicon.\n"
+        "  Child CLIs (Codex, etc.) will fail to find their arm64 helpers.\n"
+        "\n"
+        "  Fix:\n"
+        "    1. file $(which uv)         # should be arm64\n"
+        "    2. rm -rf conductor/.venv\n"
+        "    3. cd conductor && uv sync --python 3.12\n"
+        "    4. file conductor/.venv/bin/python   # expect arm64\n"
+        "    5. restart this server\n"
+        "═══════════════════════════════════════════════════════════════════\n"
+    )
+    sys.stderr.write(msg)
+    sys.stderr.flush()
 
 
 # ---------------------------------------------------------------------- #

@@ -212,15 +212,89 @@ def _codex_trust_apply(workspace: Path, handle: str) -> str:
     return f"Added --skip-git-repo-check to {target_handle}'s CLI command. You can resend now."
 
 
-def _codex_missing_binary_match(handle: str, stderr: str) -> bool:
-    """Codex CLI: ``Missing optional dependency @openai/codex-<plat>``."""
+def _is_rosetta() -> bool:
+    """Are we running an x86_64 Python on Apple Silicon (arm64) hardware?
+
+    This is the silent kill for any participant CLI whose native helper
+    is platform-tagged: child processes inherit the conductor's x86_64
+    arch via Rosetta, then fail to find their arm64-tagged helper.
+    """
+    import platform
+
+    if platform.system() != "Darwin":
+        return False
+    interp = platform.machine()  # the running interpreter's arch
+    try:
+        # `uname -m` reflects the kernel's native arch; on Apple Silicon
+        # this is "arm64" even when the calling process is x86_64.
+        kernel = subprocess.run(
+            ["uname", "-m"], capture_output=True, text=True, timeout=2, check=False
+        ).stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return kernel == "arm64" and interp == "x86_64"
+
+
+def _codex_arch_mismatch_match(handle: str, stderr: str) -> bool:
+    """Codex CLI: missing-binary error caused by Rosetta arch mismatch.
+
+    The user's terminal codex works fine because the shell is arm64;
+    the conductor's child inherits x86_64 because the conductor venv
+    was bootstrapped with an Intel Python, and codex looks for the
+    x64-tagged native helper (which arm64 npm never installed).
+
+    Distinguished from the plain ``codex-missing-binary`` rule by
+    actually inspecting the running process's arch — if we're on
+    Apple Silicon and running x86_64, this is the cause, not a
+    half-finished npm install.
+    """
     if "codex" not in handle.lower():
         return False
     text = stderr.lower()
+    if "missing optional dependency" not in text or "@openai/codex" not in text:
+        return False
+    return _is_rosetta()
+
+
+def _codex_arch_mismatch_apply(_workspace: Path, _handle: str) -> str:
+    """Surface the arch-fix recipe.
+
+    We can't fix this from inside the running conductor — the venv's
+    Python interpreter is what's wrong, and replacing it requires the
+    process to exit. So this remediation's ``apply`` returns the exact
+    commands to run instead; the UI renders multi-line summaries as a
+    monospace block so the user can copy-paste.
+    """
     return (
-        "missing optional dependency" in text
-        and "@openai/codex" in text
+        "The conductor is running under Rosetta (x86_64) on Apple Silicon, "
+        "so child processes can't find their arm64 native helpers.\n\n"
+        "Fix it from your terminal:\n\n"
+        "    # 1. Make sure uv itself is arm64\n"
+        "    file $(which uv)\n"
+        "    # If x86_64, reinstall:\n"
+        "    curl -LsSf https://astral.sh/uv/install.sh | sh\n\n"
+        "    # 2. Rebuild the conductor venv with arm64 Python\n"
+        "    pkill -f 'quorum_conductor.*serve'\n"
+        "    cd <quorum-repo>/conductor\n"
+        "    rm -rf .venv\n"
+        "    uv sync --python 3.12\n\n"
+        "    # 3. Restart the conductor from source\n"
+        "    uv run python -m quorum_conductor serve --path <workspace>\n\n"
+        "Verify: file .venv/bin/python should report arm64."
     )
+
+
+def _codex_missing_binary_match(handle: str, stderr: str) -> bool:
+    """Codex CLI: ``Missing optional dependency @openai/codex-<plat>``.
+
+    Plain version — runs *after* the arch-mismatch rule above, so by
+    the time we reach here we know the cause is a half-finished npm
+    install rather than a Rosetta arch trap.
+    """
+    if "codex" not in handle.lower():
+        return False
+    text = stderr.lower()
+    return "missing optional dependency" in text and "@openai/codex" in text
 
 
 def _codex_missing_binary_apply(_workspace: Path, _handle: str) -> str:
@@ -304,6 +378,17 @@ _RULES: list[RemediationRule] = [
         ),
         match=_codex_trust_match,
         apply=_codex_trust_apply,
+    ),
+    RemediationRule(
+        id="codex-arch-mismatch",
+        title="Conductor is running under Rosetta",
+        description=(
+            "On Apple Silicon, an x86_64 conductor process makes Codex "
+            "look for a native helper that arm64 npm never installed. "
+            "Rebuild the conductor's venv with arm64 Python and restart."
+        ),
+        match=_codex_arch_mismatch_match,
+        apply=_codex_arch_mismatch_apply,
     ),
     RemediationRule(
         id="codex-missing-binary",

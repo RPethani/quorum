@@ -24,15 +24,33 @@ import { useCallback, useEffect, useState } from "react";
  * the right at ~40%. Both panes are full-height; the header sits above,
  * a thin status bar below.
  */
+const ACTIVE_ARTIFACT_KEY = "quorum.activeArtifact";
+
 export default function CanvasPage() {
   const { state, reload: reloadState } = useCanvasState();
   const { messages } = useCanvasMessages();
-  const [activeFilename, setActiveFilename] = useState<string | null>(null);
+  // Persist the last-viewed artifact across reloads. Read synchronously
+  // on the first client render so the initial fetch picks up the saved
+  // filename instead of flashing an empty body. SSR-safe via the
+  // window guard.
+  const [activeFilename, setActiveFilename] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem(ACTIVE_ARTIFACT_KEY);
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (activeFilename) {
+      window.localStorage.setItem(ACTIVE_ARTIFACT_KEY, activeFilename);
+    } else {
+      window.localStorage.removeItem(ACTIVE_ARTIFACT_KEY);
+    }
+  }, [activeFilename]);
   const {
     artifacts,
     active,
     prevActive,
     reload: reloadArtifacts,
+    dismissDiff,
   } = useCanvasArtifacts(activeFilename);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [addAgentOpen, setAddAgentOpen] = useState(false);
@@ -58,7 +76,10 @@ export default function CanvasPage() {
       if (activeFilename !== null) setActiveFilename(null);
       return;
     }
-    if (activeFilename && !artifacts.some((a) => a.filename === activeFilename)) {
+    // Default-select the first artifact when nothing is selected, or
+    // when the saved selection no longer exists on disk (e.g. it was
+    // deleted in another tab).
+    if (!activeFilename || !artifacts.some((a) => a.filename === activeFilename)) {
       setActiveFilename(artifacts[0].filename);
     }
   }, [artifacts, activeFilename]);
@@ -88,6 +109,7 @@ export default function CanvasPage() {
             activeFilename={activeFilename ?? artifacts[0]?.filename ?? null}
             onSelect={setActiveFilename}
             onAfterDelete={reloadArtifacts}
+            onDismissDiff={dismissDiff}
           />
         </section>
       </main>

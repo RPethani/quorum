@@ -126,6 +126,7 @@ export function useCanvasArtifacts(activeFilename: string | null): {
   prevActive: string | null;
   error: string | null;
   reload: () => void;
+  dismissDiff: () => void;
 } {
   const [artifacts, setArtifacts] = useState<CanvasArtifactSummary[]>([]);
   const [active, setActive] = useState<CanvasArtifactDetail | null>(null);
@@ -163,5 +164,12 @@ export function useCanvasArtifacts(activeFilename: string | null): {
     return unsub;
   }, [reload]);
 
-  return { artifacts, active, prevActive, error, reload };
+  // Clear the diff overlay without touching the file. The current body
+  // becomes the new "previous" baseline so a subsequent update renders
+  // its own diff against this acknowledged version.
+  const dismissDiff = useCallback(() => {
+    setPrevActive(null);
+  }, []);
+
+  return { artifacts, active, prevActive, error, reload, dismissDiff };
 }

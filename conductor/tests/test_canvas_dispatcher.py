@@ -44,6 +44,83 @@ def test_no_mentions_appends_user_message_only(tmp_path: Path) -> None:
     assert stored == result.user_message
 
 
+def test_no_mention_routes_to_last_mentioned_agent(tmp_path: Path) -> None:
+    """Quick follow-ups (no @mention) route to whoever the same author
+    last @-mentioned, so 'thanks' / 'say more' don't dead-end."""
+    ws = _ws(tmp_path)
+    invocations: list[str] = []
+
+    def invoke(req: InvocationRequest) -> InvocationResult:
+        invocations.append(req.handle)
+        return InvocationResult(reply="ok")
+
+    # Establish a prior mention of @gemini.
+    dispatch(ws, "@gemini what do you think?", invoke=invoke, now=_fixed_now)
+    # User now follows up without mentioning anyone.
+    result = dispatch(ws, "thanks", invoke=invoke, now=_fixed_now)
+
+    assert invocations == ["@gemini", "@gemini"]
+    assert len(result.turns) == 1
+    assert result.turns[0].handle == "@gemini"
+
+
+def test_no_mention_picks_last_mention_in_document_order(tmp_path: Path) -> None:
+    """When the prior message had multiple mentions, the *last* one in
+    document order wins — that's the agent the user spoke to most
+    recently."""
+    ws = _ws(tmp_path)
+    invocations: list[str] = []
+
+    def invoke(req: InvocationRequest) -> InvocationResult:
+        invocations.append(req.handle)
+        return InvocationResult(reply="ok")
+
+    dispatch(ws, "@claude-opus and @gemini compare notes", invoke=invoke, now=_fixed_now)
+    result = dispatch(ws, "say more", invoke=invoke, now=_fixed_now)
+
+    # First dispatch ran both; follow-up routes only to @gemini.
+    assert invocations == ["@claude-opus", "@gemini", "@gemini"]
+    assert [t.handle for t in result.turns] == ["@gemini"]
+
+
+def test_no_mention_with_no_history_is_a_no_op(tmp_path: Path) -> None:
+    """If the user hasn't mentioned anyone yet, an unaddressed message
+    just appends to the canvas — no implicit target to fall back to."""
+    ws = _ws(tmp_path)
+
+    def never_called(_req: InvocationRequest) -> InvocationResult:
+        raise AssertionError("invoke should not run with no prior mentions")
+
+    result = dispatch(ws, "hello world", invoke=never_called, now=_fixed_now)
+    assert result.turns == []
+
+
+def test_no_mention_ignores_other_authors_history(tmp_path: Path) -> None:
+    """The fallback looks at the *same* author's history. An agent's
+    message that happens to contain `@x` shouldn't redirect a different
+    author's follow-up."""
+    ws = _ws(tmp_path)
+
+    def replies_with_mention(_req: InvocationRequest) -> InvocationResult:
+        # Agent reply mentions another agent; this should NOT count as
+        # a "user mentioned" for the routing fallback.
+        return InvocationResult(reply="cc @gemini you might want to weigh in")
+
+    dispatch(ws, "@claude-opus draft something", invoke=replies_with_mention, now=_fixed_now)
+
+    invocations: list[str] = []
+
+    def capture(req: InvocationRequest) -> InvocationResult:
+        invocations.append(req.handle)
+        return InvocationResult(reply="ok")
+
+    dispatch(ws, "thanks", invoke=capture, now=_fixed_now)
+
+    # Routes to @claude-opus (the user's last mention), NOT @gemini
+    # (which appeared inside the agent's reply body).
+    assert invocations == ["@claude-opus"]
+
+
 def test_single_mention_invokes_agent_and_appends_reply(tmp_path: Path) -> None:
     ws = _ws(tmp_path)
 

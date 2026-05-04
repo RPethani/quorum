@@ -34,7 +34,7 @@ from pathlib import Path
 
 from .artifact_writer import ArtifactWriteResult, write_artifact
 from .artifacts import extract_artifacts
-from .io import append_message
+from .io import append_message, parse_canvas
 from .mentions import extract_mentions
 from .message import Message
 from .remediation import Remediation
@@ -144,8 +144,24 @@ def dispatch(
     canvas_path = workspace / "canvas.md"
     append_message(canvas_path, user_msg)
 
-    # 2. Routing.
+    # 2. Routing. If the new message has no `@mention`s, fall back to
+    #    the most recent `@mention` in the same author's prior messages
+    #    so quick follow-ups ("thanks", "say more") route to whoever
+    #    they were just talking to. We exclude the just-appended message
+    #    from the lookback so its empty mention list doesn't shadow the
+    #    older one.
     mentions = extract_mentions(body)
+    if not mentions:
+        prior = parse_canvas(canvas_path)
+        for past in reversed(prior):
+            if past.id == user_msg.id:
+                continue
+            if past.author != author:
+                continue
+            past_mentions = extract_mentions(past.body)
+            if past_mentions:
+                mentions = [past_mentions[-1]]
+                break
     turns: list[AgentTurn] = []
 
     # 3. Sequential invocation.

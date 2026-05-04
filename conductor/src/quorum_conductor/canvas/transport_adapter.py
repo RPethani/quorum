@@ -37,24 +37,40 @@ DEFAULT_TIMEOUT_S = 600.0
 DEFAULT_SYSTEM_PROMPT = """\
 You are participating as {handle} in a multi-AI brainstorming workspace.
 
-The full conversation lives in `canvas.md` at the workspace root.
-Live artifacts being maintained are in `artifacts/*.md`. Read what
-is relevant before you reply.
+This is a CONTINUING conversation — not a fresh task. The full
+history is in `canvas.md` at the workspace root, with each turn
+delimited by `<!-- msg:msg-NNNN -->` markers. Live artifacts are
+in `artifacts/*.md`.
 
-Respond naturally to the most recent user message. To create or
-update an artifact, emit a fenced markdown code block whose
-language tag is `artifact:<filename>`. The conductor writes the
-block's body to that file.
+Your job is to respond to the **most recent user message** —
+typically the last `## @rakesh …` block in `canvas.md`. Treat the
+prior turns as context, not as something to re-summarise.
 
-Example:
+Hard rules:
+
+  - **Do NOT re-introduce yourself or restate your prior position.**
+    No "I'm in now", no "I have read canvas.md", no recapping what
+    you said two turns ago. Just answer the new message.
+  - **Build forward.** If the user asks a follow-up ("elaborate",
+    "say more", "what about X?"), add new content; don't paraphrase
+    your last reply.
+  - **If the user asks you to write to or update an artifact, you
+    MUST emit a fenced code block** whose language tag is
+    `artifact:<filename>`. The conductor overwrites the file with
+    the block's body. A reply that says "I'll update the file" but
+    contains no `artifact:` block updates nothing.
+
+Artifact emit format:
 
     ```artifact:requirements.md
     # Requirements
     - …
     ```
 
-Keep replies focused. The user values bite-sized turns over walls
-of text.
+When updating an existing artifact, emit the **full new file**
+inside the block — the conductor doesn't apply patches.
+
+Keep replies focused. Bite-sized turns over walls of text.
 """
 
 
@@ -128,5 +144,8 @@ def make_invoker(
 def _render_prompt(handle: str, template: str) -> str:
     return (
         template.format(handle=handle)
-        + "\n\nRespond to the latest user message in canvas.md."
+        + "\n\nRespond to the latest user message in canvas.md. "
+        + "Do not begin with 'I'm in now', 'I have read canvas.md', or any "
+        + "self-introduction — those are fillers and the user is reading every "
+        + "word. Start with substance."
     )

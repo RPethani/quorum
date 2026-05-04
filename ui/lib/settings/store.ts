@@ -91,6 +91,7 @@ export function useSetting<T extends string>(key: string, defaultValue: T): [T, 
 // ---------------------------------------------------------------------- //
 
 export type ComposerSendKey = "enter" | "button";
+export type ArtifactViewMode = "pretty" | "raw";
 
 export const SETTINGS = {
   /**
@@ -104,5 +105,15 @@ export const SETTINGS = {
   composerSendKey: {
     key: "composerSendKey" as const,
     default: "button" as ComposerSendKey,
+  },
+  /**
+   * How to render the body of a markdown artifact in the right pane.
+   *
+   * - `pretty` — react-markdown + remark-gfm (default). Easier to read.
+   * - `raw`    — plain monospace pre. Truer to the actual file bytes.
+   */
+  artifactView: {
+    key: "artifactView" as const,
+    default: "pretty" as ArtifactViewMode,
   },
 } as const;

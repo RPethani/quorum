@@ -36,8 +36,16 @@ export function ChatPane({
   }, [visibleCount]);
 
   async function handleSend(body: string) {
-    // Optimistically render typing indicators for each @mention.
-    const mentions = Array.from(body.matchAll(/(?:^|\s)@([\w-]+)/g)).map((m) => `@${m[1]}`);
+    // Optimistically render typing indicators for each @mention. When
+    // the message has no @mentions we mirror the conductor's
+    // implicit-fallback rule (route to whoever the user last @-mentioned)
+    // so the indicator shows up immediately rather than after the agent
+    // replies. Empty mentions list = no implicit target = no indicator.
+    let mentions = extractMentions(body);
+    if (mentions.length === 0) {
+      const implicit = inferImplicitMention(messages, participants);
+      if (implicit) mentions = [implicit];
+    }
     setPendingHandles(mentions);
     try {
       await sendCanvasMessage(body);
@@ -48,9 +56,16 @@ export function ChatPane({
   }
 
   async function handleRetry(messageId: string) {
+    // Mirror the conductor's retry routing: find the human message
+    // that triggered this @system error, render its @mentions as
+    // pending so the user sees "X is thinking…" right away instead of
+    // staring at a frozen error card.
+    const retryMentions = inferRetryMentions(messages, messageId, participants);
+    setPendingHandles(retryMentions);
     try {
       await retryCanvasMessage(messageId);
     } finally {
+      setPendingHandles([]);
       onAfterSend?.();
     }
   }
@@ -91,6 +106,71 @@ export function ChatPane({
       />
     </div>
   );
+}
+
+// ---------------------------------------------------------------------- //
+// Mention helpers — kept in lock-step with the conductor's dispatcher
+// (`canvas/dispatcher.py::dispatch`) so the optimistic typing indicators
+// match the agents that will actually be invoked server-side.
+// ---------------------------------------------------------------------- //
+
+const MENTION_RE = /(?:^|\s)@([\w-]+)/g;
+
+function extractMentions(body: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of body.matchAll(MENTION_RE)) {
+    const handle = `@${m[1]}`;
+    if (seen.has(handle)) continue;
+    seen.add(handle);
+    out.push(handle);
+  }
+  return out;
+}
+
+function isHumanAuthored(author: string, agents: Set<string>): boolean {
+  return author !== "@system" && !agents.has(author);
+}
+
+/**
+ * Find the most recent human message with at least one @mention and
+ * return that message's *last* @mention — matching dispatcher's rule
+ * for the no-mention follow-up case.
+ */
+function inferImplicitMention(
+  messages: CanvasMessage[],
+  participants: ParticipantRow[],
+): string | null {
+  const agents = new Set(participants.map((p) => p.handle));
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!isHumanAuthored(m.author, agents)) continue;
+    const ms = extractMentions(m.body);
+    if (ms.length > 0) return ms[ms.length - 1];
+  }
+  return null;
+}
+
+/**
+ * For a retry on `errorId`, walk backward to the human message that
+ * triggered the failure and return *all* of its @mentions — the
+ * conductor's retry handler re-dispatches the whole list.
+ */
+function inferRetryMentions(
+  messages: CanvasMessage[],
+  errorId: string,
+  participants: ParticipantRow[],
+): string[] {
+  const agents = new Set(participants.map((p) => p.handle));
+  const idx = messages.findIndex((m) => m.id === errorId);
+  if (idx < 0) return [];
+  for (let i = idx - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!isHumanAuthored(m.author, agents)) continue;
+    const ms = extractMentions(m.body);
+    if (ms.length > 0) return ms;
+  }
+  return [];
 }
 
 function ChatEmptyHint({ composerDisabled }: { composerDisabled: boolean }) {

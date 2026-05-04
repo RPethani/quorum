@@ -1,13 +1,15 @@
 "use client";
 
+import { Markdown } from "@/components/ui/markdown";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
   type CanvasArtifactDetail,
   type CanvasArtifactSummary,
   deleteCanvasArtifact,
 } from "@/lib/api/canvas";
+import { type ArtifactViewMode, SETTINGS, useSetting } from "@/lib/settings/store";
 import { cn } from "@/lib/utils";
-import { FileText, X } from "lucide-react";
+import { Check, Code2, Eye, FileText, X } from "lucide-react";
 import { useMemo } from "react";
 
 /**
@@ -22,6 +24,7 @@ export function ArtifactPane({
   activeFilename,
   onSelect,
   onAfterDelete,
+  onDismissDiff,
 }: {
   artifacts: CanvasArtifactSummary[];
   active: CanvasArtifactDetail | null;
@@ -29,6 +32,7 @@ export function ArtifactPane({
   activeFilename: string | null;
   onSelect: (filename: string | null) => void;
   onAfterDelete?: () => void;
+  onDismissDiff?: () => void;
 }) {
   // Auto-select the first artifact if none is active and at least one exists.
   const effectiveActive = activeFilename ?? (artifacts.length > 0 ? artifacts[0].filename : null);
@@ -45,13 +49,15 @@ export function ArtifactPane({
         onSelect={onSelect}
         onAfterDelete={onAfterDelete}
       />
-      {/* Inset the artifact body in a card on the recessed pane so the
-          content sits on a clean, readable surface and the pane reads
-          as a "side panel" container around it. */}
-      <div className="flex-1 overflow-y-auto p-3">
-        <div className="h-full rounded-md border border-border-default bg-canvas shadow-sm overflow-hidden">
+      {/* Inset the artifact body in a card. The card itself is the
+          scroll container — `min-h-0` on the flex parent lets `flex-1`
+          actually constrain the height so overflow has somewhere to
+          go (without it the card would expand to fit the body and
+          nothing would scroll). */}
+      <div className="flex min-h-0 flex-1 p-3">
+        <div className="flex h-full w-full flex-col overflow-hidden rounded-md border border-border-default bg-canvas shadow-sm">
           {active ? (
-            <ArtifactBody detail={active} prevBody={prevBody} />
+            <ArtifactBody detail={active} prevBody={prevBody} onDismissDiff={onDismissDiff} />
           ) : (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-fg-tertiary">
               Select an artifact tab to view it.
@@ -85,7 +91,7 @@ function ArtifactTabs({
   }
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto border-b border-border-default bg-elevated px-2 py-1.5">
+    <div className="flex flex-nowrap items-stretch overflow-x-auto overflow-y-hidden whitespace-nowrap border-b border-border-default bg-elevated [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {artifacts.map((a) => {
         const active = a.filename === activeFilename;
         return (
@@ -93,29 +99,47 @@ function ArtifactTabs({
             key={a.filename}
             label={`${a.filename} — ${_humanSize(a.size)}`}
             triggerClassName="!inline-flex"
+            floating
           >
             <div
               className={cn(
-                "group inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px]",
+                // IDE-style tab: tabs butt up against each other, share a
+                // baseline; active one bleeds into the body surface so it
+                // reads as "in front", inactive ones sit on the elevated
+                // strip with a subtle right divider.
+                "group relative inline-flex shrink-0 items-center gap-1.5 border-r border-border-default px-3 py-1.5 text-[11px] transition-colors",
                 active
-                  ? "border-accent-primary/50 bg-accent-primary-weak text-accent-primary"
-                  : "border-border-default bg-canvas text-fg-secondary hover:bg-recessed",
+                  ? "-mb-px border-b border-b-canvas bg-canvas text-fg-primary"
+                  : "bg-elevated text-fg-secondary hover:bg-recessed hover:text-fg-primary",
               )}
             >
+              {active ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-x-0 top-0 h-0.5 bg-accent-primary"
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={() => onSelect(a.filename)}
-                className="inline-flex items-center gap-1 font-mono"
+                className="inline-flex items-center gap-1.5 font-mono"
               >
-                <FileText size={11} strokeWidth={1.5} />
-                <span className="max-w-[160px] truncate">{a.filename}</span>
+                <FileText
+                  size={12}
+                  strokeWidth={1.5}
+                  className={cn(active ? "text-accent-primary" : "text-fg-tertiary")}
+                />
+                <span className="max-w-[180px] truncate">{a.filename}</span>
               </button>
-              <Tooltip label={`Delete ${a.filename}`} side="bottom">
+              <Tooltip label={`Delete ${a.filename}`} side="bottom" floating>
                 <button
                   type="button"
                   aria-label={`Delete ${a.filename}`}
                   onClick={() => void handleDelete(a.filename)}
-                  className="rounded-sm p-0.5 text-fg-tertiary opacity-0 transition-opacity hover:bg-recessed hover:text-fg-primary group-hover:opacity-100"
+                  className={cn(
+                    "rounded-sm p-0.5 text-fg-tertiary transition-opacity hover:bg-recessed hover:text-fg-primary",
+                    active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-100",
+                  )}
                 >
                   <X size={11} strokeWidth={2.5} />
                 </button>
@@ -124,6 +148,9 @@ function ArtifactTabs({
           </Tooltip>
         );
       })}
+      {/* Filler so the bottom border continues across empty space after
+          the last tab. */}
+      <div className="min-w-2 flex-1" aria-hidden="true" />
     </div>
   );
 }
@@ -131,30 +158,96 @@ function ArtifactTabs({
 function ArtifactBody({
   detail,
   prevBody,
+  onDismissDiff,
 }: {
   detail: CanvasArtifactDetail;
   prevBody: string | null;
+  onDismissDiff?: () => void;
 }) {
-  // We render the markdown body verbatim in a styled <pre> for MVP.
-  // A full markdown pretty-renderer (`react-markdown`) will land in
-  // a polish pass — for now plain text is the most predictable view.
+  const [viewMode, setViewMode] = useSetting<ArtifactViewMode>(
+    SETTINGS.artifactView.key,
+    SETTINGS.artifactView.default,
+  );
   const showDiff = prevBody !== null && prevBody !== detail.body;
-  return (
-    <div className="px-4 py-3">
-      <header className="mb-3 flex items-baseline justify-between gap-2">
-        <h3 className="font-mono text-xs text-fg-secondary">{detail.filename}</h3>
-        <span className="text-[10px] text-fg-tertiary tabular-nums">
-          {_humanSize(detail.size)} · {_relTime(detail.modified_at)}
-        </span>
-      </header>
+  const isMarkdown = /\.(md|markdown)$/i.test(detail.filename);
 
-      {showDiff ? (
-        <DiffView before={prevBody ?? ""} after={detail.body} />
-      ) : (
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-fg-primary">
-          {detail.body}
-        </pre>
-      )}
+  return (
+    <>
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border-default px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="truncate font-mono text-xs text-fg-secondary">{detail.filename}</h3>
+          {showDiff ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-accent-primary-weak px-1.5 py-0.5 text-[10px] font-medium text-accent-primary">
+              just updated
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {showDiff && onDismissDiff ? (
+            <button
+              type="button"
+              onClick={onDismissDiff}
+              className="inline-flex items-center gap-1 rounded-md border border-border-default bg-elevated px-2 py-0.5 text-[11px] font-medium text-fg-secondary hover:bg-recessed hover:text-fg-primary"
+            >
+              <Check size={11} strokeWidth={2.5} />
+              Got it
+            </button>
+          ) : null}
+          {isMarkdown && !showDiff ? <ViewToggle value={viewMode} onChange={setViewMode} /> : null}
+          <span className="text-[10px] text-fg-tertiary tabular-nums">
+            {_humanSize(detail.size)} · {_relTime(detail.modified_at)}
+          </span>
+        </div>
+      </header>
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {showDiff ? (
+          <DiffView before={prevBody ?? ""} after={detail.body} />
+        ) : isMarkdown && viewMode === "pretty" ? (
+          <Markdown body={detail.body} />
+        ) : (
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-fg-primary">
+            {detail.body}
+          </pre>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: ArtifactViewMode;
+  onChange: (next: ArtifactViewMode) => void;
+}) {
+  const opts: { value: ArtifactViewMode; label: string; Icon: typeof Eye }[] = [
+    { value: "pretty", label: "Pretty", Icon: Eye },
+    { value: "raw", label: "Raw", Icon: Code2 },
+  ];
+  return (
+    <div className="inline-flex items-center rounded-md border border-border-default bg-elevated p-0.5">
+      {opts.map(({ value: v, label, Icon }) => {
+        const active = v === value;
+        return (
+          <Tooltip key={v} label={label} side="bottom" align="center">
+            <button
+              type="button"
+              aria-pressed={active}
+              aria-label={label}
+              onClick={() => onChange(v)}
+              className={cn(
+                "inline-flex h-5 w-5 items-center justify-center rounded-sm transition-colors",
+                active
+                  ? "bg-accent-primary-weak text-accent-primary"
+                  : "text-fg-tertiary hover:text-fg-primary",
+              )}
+            >
+              <Icon size={11} strokeWidth={2} />
+            </button>
+          </Tooltip>
+        );
+      })}
     </div>
   );
 }
