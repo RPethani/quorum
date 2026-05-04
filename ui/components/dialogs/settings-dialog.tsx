@@ -1,8 +1,11 @@
 "use client";
 
 import { Dialog } from "@/components/ui/dialog";
+import { updateCanvasState } from "@/lib/api/canvas";
+import type { ParticipantRow } from "@/lib/api/conductor";
 import { type ComposerSendKey, SETTINGS, useSetting } from "@/lib/settings/store";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 /**
  * Settings dialog — a single home for user-preference toggles.
@@ -15,9 +18,15 @@ import { cn } from "@/lib/utils";
 export function SettingsDialog({
   open,
   onClose,
+  digesterHandle,
+  participants,
+  onDigesterChanged,
 }: {
   open: boolean;
   onClose: () => void;
+  digesterHandle: string;
+  participants: ParticipantRow[];
+  onDigesterChanged: () => void;
 }) {
   return (
     <Dialog
@@ -29,8 +38,68 @@ export function SettingsDialog({
     >
       <div className="flex flex-col gap-6">
         <ComposerSection />
+        <DefaultAgentsSection
+          digesterHandle={digesterHandle}
+          participants={participants}
+          onChanged={onDigesterChanged}
+        />
       </div>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------- //
+// Default agents — workspace-level (writes through to state.yaml).
+// ---------------------------------------------------------------------- //
+
+function DefaultAgentsSection({
+  digesterHandle,
+  participants,
+  onChanged,
+}: {
+  digesterHandle: string;
+  participants: ParticipantRow[];
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function set(handle: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateCanvasState({ digester_handle: handle });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Default agents"
+      description="Which participant the conductor reaches for when a system task needs an agent (e.g. summarising a repo for context)."
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] text-fg-secondary">Digester</span>
+        <select
+          value={digesterHandle}
+          disabled={saving}
+          onChange={(e) => void set(e.target.value)}
+          className="rounded-md border border-border-default bg-elevated px-2 py-1 text-sm text-fg-primary focus:border-accent-primary focus:outline-none focus:ring-1 focus:ring-accent-primary"
+        >
+          <option value="">— none —</option>
+          {participants.map((p) => (
+            <option key={p.handle} value={p.handle}>
+              {p.handle}
+            </option>
+          ))}
+        </select>
+      </div>
+      {error ? <p className="mt-2 text-xs text-accent-danger">{error}</p> : null}
+    </Section>
   );
 }
 

@@ -15,6 +15,11 @@ the protocol surface; what remains is:
     GET  /api/participants        registered participant rows + live health
     POST /api/participants        add a row (PATCH/DELETE deferred — edit
                                   registers/participants.md by hand for MVP)
+    GET  /api/canvas/context              list context entries
+    POST /api/canvas/context              add repo / doc / note
+    DELETE /api/canvas/context/{id}       remove an entry
+    POST /api/canvas/context/{id}/refresh  reset digest_status to pending
+    POST /api/canvas/context/{id}/digest   run digestion synchronously
     GET  /api/events?since=N      append-only event log tail
     GET  /api/stream              Server-Sent Events for liveness
 
@@ -141,6 +146,9 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 name = unquote(path[len("/api/canvas/artifacts/") :])
                 return canvas_routes.reply_artifact(self, name)
 
+            if path == "/api/canvas/context":
+                return canvas_routes.reply_context_list(self)
+
             if path == "/api/participants":
                 return self._reply_participants()
 
@@ -166,6 +174,15 @@ class QuorumHandler(BaseHTTPRequestHandler):
                 return canvas_routes.handle_retry(self, unquote(mid))
             if path == "/api/canvas/remediations/apply":
                 return canvas_routes.handle_remediation_apply(self)
+
+            if path == "/api/canvas/context":
+                return canvas_routes.handle_context_add(self)
+            if path.startswith("/api/canvas/context/") and path.endswith("/refresh"):
+                eid = path[len("/api/canvas/context/") : -len("/refresh")]
+                return canvas_routes.handle_context_refresh(self, unquote(eid))
+            if path.startswith("/api/canvas/context/") and path.endswith("/digest"):
+                eid = path[len("/api/canvas/context/") : -len("/digest")]
+                return canvas_routes.handle_context_digest(self, unquote(eid))
 
             if path == "/api/participants":
                 return self._handle_participants_add()
@@ -193,6 +210,9 @@ class QuorumHandler(BaseHTTPRequestHandler):
             if path.startswith("/api/canvas/artifacts/"):
                 name = unquote(path[len("/api/canvas/artifacts/") :])
                 return canvas_routes.handle_artifact_delete(self, name)
+            if path.startswith("/api/canvas/context/"):
+                eid = path[len("/api/canvas/context/") :]
+                return canvas_routes.handle_context_remove(self, unquote(eid))
             return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})

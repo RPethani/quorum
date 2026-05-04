@@ -33,6 +33,21 @@ from ..canvas import (
 )
 from ..canvas import remediation as remediation_mod
 from ..canvas.transport_adapter import make_invoker
+from ..context import (
+    ContextEntry,
+    ContextOperationError,
+    DigestError,
+    add_doc,
+    add_note,
+    add_repo,
+    digest_repo,
+    load_manifest,
+    make_digest_invoker,
+    mark_stale_repos,
+    refresh as context_refresh,
+    remove as context_remove,
+)
+from ..context.digester import DigestInvokeFn
 
 if TYPE_CHECKING:
     from .http_app import QuorumHandler
@@ -41,6 +56,7 @@ if TYPE_CHECKING:
 # Lazily memoised invoker — created once per handler module load so
 # repeat dispatches don't re-build the closure every turn.
 _INVOKER: InvokeFn | None = None
+_DIGEST_INVOKER: DigestInvokeFn | None = None
 
 
 def _invoker() -> InvokeFn:
@@ -48,6 +64,13 @@ def _invoker() -> InvokeFn:
     if _INVOKER is None:
         _INVOKER = make_invoker()
     return _INVOKER
+
+
+def _digest_invoker() -> DigestInvokeFn:
+    global _DIGEST_INVOKER
+    if _DIGEST_INVOKER is None:
+        _DIGEST_INVOKER = make_digest_invoker()
+    return _DIGEST_INVOKER
 
 
 def _workspace(handler: QuorumHandler) -> Path:
@@ -77,6 +100,7 @@ def reply_state(handler: QuorumHandler) -> None:
                 "cap": state.cost.cap,
                 "enforce": state.cost.enforce,
             },
+            "digester_handle": state.digester_handle,
             "schema_version": state.schema_version,
         },
     )
@@ -341,6 +365,15 @@ def handle_state_patch(handler: QuorumHandler) -> None:
             )
         state = dc_replace(state, title=new_title)
 
+    if "digester_handle" in payload:
+        new_handle = str(payload.get("digester_handle") or "").strip()
+        if new_handle and not new_handle.startswith("@"):
+            return handler._reply_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "digester_handle must start with '@' (or be empty)"},
+            )
+        state = dc_replace(state, digester_handle=new_handle)
+
     save_state(ws, state)
 
     handler._reply_json(
@@ -354,9 +387,108 @@ def handle_state_patch(handler: QuorumHandler) -> None:
                 "cap": state.cost.cap,
                 "enforce": state.cost.enforce,
             },
+            "digester_handle": state.digester_handle,
             "schema_version": state.schema_version,
         },
     )
+
+
+# ---------------------------------------------------------------------- #
+# Context endpoints
+# ---------------------------------------------------------------------- #
+
+
+def reply_context_list(handler: QuorumHandler) -> None:
+    ws = _workspace(handler)
+    manifest = mark_stale_repos(ws)
+    handler._reply_json(
+        HTTPStatus.OK,
+        {"entries": [_entry_dict(e) for e in manifest.entries]},
+    )
+
+
+def handle_context_add(handler: QuorumHandler) -> None:
+    ws = _workspace(handler)
+    payload = handler._read_json_body()
+    kind = str(payload.get("kind", "")).strip()
+    name_opt = payload.get("name")
+    name = str(name_opt).strip() if name_opt is not None else None
+
+    try:
+        if kind == "repo":
+            source = _resolved_source(payload)
+            if source is None:
+                return handler._reply_json(
+                    HTTPStatus.BAD_REQUEST, {"error": "source path is required"}
+                )
+            entry = add_repo(ws, source, name=name)
+        elif kind == "doc":
+            source = _resolved_source(payload)
+            if source is None:
+                return handler._reply_json(
+                    HTTPStatus.BAD_REQUEST, {"error": "source path is required"}
+                )
+            entry = add_doc(ws, source, name=name)
+        elif kind == "note":
+            note_name = str(payload.get("name", "")).strip()
+            body = str(payload.get("body", ""))
+            entry = add_note(ws, note_name, body)
+        else:
+            return handler._reply_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "kind must be 'repo', 'doc', or 'note'"},
+            )
+    except ContextOperationError as e:
+        return handler._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+
+    handler._reply_json(HTTPStatus.OK, {"entry": _entry_dict(entry)})
+
+
+def handle_context_remove(handler: QuorumHandler, entry_id: str) -> None:
+    ws = _workspace(handler)
+    try:
+        entry = context_remove(ws, entry_id)
+    except ContextOperationError as e:
+        return handler._reply_json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+    handler._reply_json(HTTPStatus.OK, {"removed": _entry_dict(entry)})
+
+
+def handle_context_refresh(handler: QuorumHandler, entry_id: str) -> None:
+    ws = _workspace(handler)
+    try:
+        entry = context_refresh(ws, entry_id)
+    except ContextOperationError as e:
+        return handler._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+    handler._reply_json(HTTPStatus.OK, {"entry": _entry_dict(entry)})
+
+
+def handle_context_digest(handler: QuorumHandler, entry_id: str) -> None:
+    ws = _workspace(handler)
+    payload = handler._read_json_body()
+
+    try:
+        state = load_state(ws)
+    except StateError as e:
+        return handler._reply_json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+
+    handle = str(payload.get("handle") or state.digester_handle or "").strip()
+    if not handle:
+        return handler._reply_json(
+            HTTPStatus.BAD_REQUEST,
+            {
+                "error": (
+                    "no digester_handle configured — set one in Settings "
+                    "or pass {handle: '@…'} in the body"
+                )
+            },
+        )
+
+    try:
+        entry = digest_repo(ws, entry_id, invoke=_digest_invoker(), handle=handle)
+    except DigestError as e:
+        return handler._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+
+    handler._reply_json(HTTPStatus.OK, {"entry": _entry_dict(entry)})
 
 
 # ---------------------------------------------------------------------- #
@@ -400,6 +532,33 @@ def _safe_artifact_path(workspace: Path, filename: str) -> Path | None:
     except ValueError:
         return None
     return candidate
+
+
+def _resolved_source(payload: dict[str, Any]) -> Path | None:
+    raw = payload.get("source")
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    return Path(s).expanduser()
+
+
+def _entry_dict(entry: ContextEntry) -> dict[str, Any]:
+    return {
+        "id": entry.id,
+        "kind": entry.kind,
+        "name": entry.name,
+        "added_at": _iso(entry.added_at),
+        "source": entry.source,
+        "digest_status": entry.digest_status,
+        "digest_summary": entry.digest_summary,
+        "digest_error": entry.digest_error,
+        "digest_at": _iso(entry.digest_at) if entry.digest_at else None,
+        "source_git_ref": entry.source_git_ref,
+        "stale": entry.stale,
+        "body": entry.body,
+    }
 
 
 def _msg_dict(message: Any) -> dict[str, Any]:

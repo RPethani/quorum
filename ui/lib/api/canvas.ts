@@ -24,6 +24,7 @@ export type CanvasState = {
   created_at: string;
   message_counter: number;
   cost: { spent: number; cap: number; enforce: boolean };
+  digester_handle: string;
   schema_version: number;
 };
 
@@ -119,7 +120,10 @@ export function getCanvasState(): Promise<CanvasState> {
   return getJSON<CanvasState>("/api/canvas/state");
 }
 
-export function updateCanvasState(patch: { title?: string }): Promise<CanvasState> {
+export function updateCanvasState(patch: {
+  title?: string;
+  digester_handle?: string;
+}): Promise<CanvasState> {
   return patchJSON<CanvasState>("/api/canvas/state", patch);
 }
 
@@ -153,6 +157,64 @@ export function deleteCanvasArtifact(
   filename: string,
 ): Promise<{ filename: string; archived: string }> {
   return delJSON(`/api/canvas/artifacts/${encodeURIComponent(filename)}`);
+}
+
+// ---------------------------------------------------------------------- //
+// Context entries
+// ---------------------------------------------------------------------- //
+
+export type CanvasContextEntry = {
+  id: string;
+  kind: "repo" | "doc" | "note";
+  name: string;
+  added_at: string;
+  source: string;
+  digest_status: "" | "pending" | "running" | "ready" | "failed";
+  digest_summary: string;
+  digest_error: string;
+  digest_at: string | null;
+  source_git_ref: string;
+  stale: boolean;
+  body: string;
+};
+
+export type CanvasContextListResponse = { entries: CanvasContextEntry[] };
+
+export function listCanvasContext(): Promise<CanvasContextListResponse> {
+  return getJSON<CanvasContextListResponse>("/api/canvas/context");
+}
+
+export function addCanvasRepo(
+  source: string,
+  name?: string,
+): Promise<{ entry: CanvasContextEntry }> {
+  return postJSON("/api/canvas/context", { kind: "repo", source, ...(name ? { name } : {}) });
+}
+
+export function addCanvasDoc(
+  source: string,
+  name?: string,
+): Promise<{ entry: CanvasContextEntry }> {
+  return postJSON("/api/canvas/context", { kind: "doc", source, ...(name ? { name } : {}) });
+}
+
+export function addCanvasNote(name: string, body: string): Promise<{ entry: CanvasContextEntry }> {
+  return postJSON("/api/canvas/context", { kind: "note", name, body });
+}
+
+export function removeCanvasContext(id: string): Promise<{ removed: CanvasContextEntry }> {
+  return delJSON(`/api/canvas/context/${encodeURIComponent(id)}`);
+}
+
+export function refreshCanvasContext(id: string): Promise<{ entry: CanvasContextEntry }> {
+  return postJSON(`/api/canvas/context/${encodeURIComponent(id)}/refresh`, {});
+}
+
+export function digestCanvasContext(
+  id: string,
+  handle?: string,
+): Promise<{ entry: CanvasContextEntry }> {
+  return postJSON(`/api/canvas/context/${encodeURIComponent(id)}/digest`, handle ? { handle } : {});
 }
 
 // ---------------------------------------------------------------------- //

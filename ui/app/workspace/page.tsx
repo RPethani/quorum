@@ -7,12 +7,13 @@ import { ParticipantsDialog } from "@/components/canvas/participants-dialog";
 import { ParticipantsStack } from "@/components/canvas/participants-stack";
 import { ThemeToggle } from "@/components/design-system/theme-toggle";
 import { AddAgentDialog } from "@/components/dialogs/add-agent-dialog";
+import { ContextDialog } from "@/components/dialogs/context-dialog";
 import { SettingsDialog } from "@/components/dialogs/settings-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { ParticipantRow } from "@/lib/api/conductor";
 import { getParticipants } from "@/lib/api/conductor";
 import { useCanvasArtifacts, useCanvasMessages, useCanvasState } from "@/lib/canvas/use-canvas";
-import { Plus, Settings } from "lucide-react";
+import { FolderGit2, Plus, Settings } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 
@@ -37,6 +38,7 @@ export default function CanvasPage() {
   const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [participantsDialogOpen, setParticipantsDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [contextDialogOpen, setContextDialogOpen] = useState(false);
 
   const reloadParticipants = useCallback(async () => {
     try {
@@ -69,6 +71,7 @@ export default function CanvasPage() {
         onOpenParticipants={() => setParticipantsDialogOpen(true)}
         onAddParticipant={() => setAddAgentOpen(true)}
         onOpenSettings={() => setSettingsDialogOpen(true)}
+        onOpenContext={() => setContextDialogOpen(true)}
         onTitleChanged={() => void reloadState()}
       />
       <main className="flex flex-1 min-h-0">
@@ -98,7 +101,18 @@ export default function CanvasPage() {
           setAddAgentOpen(true);
         }}
       />
-      <SettingsDialog open={settingsDialogOpen} onClose={() => setSettingsDialogOpen(false)} />
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onClose={() => setSettingsDialogOpen(false)}
+        digesterHandle={state?.digester_handle ?? ""}
+        participants={participants}
+        onDigesterChanged={() => void reloadState()}
+      />
+      <ContextDialog
+        open={contextDialogOpen}
+        onClose={() => setContextDialogOpen(false)}
+        digesterHandle={state?.digester_handle ?? ""}
+      />
       <AddAgentDialog
         open={addAgentOpen}
         onClose={() => setAddAgentOpen(false)}
@@ -117,6 +131,7 @@ function Header({
   onOpenParticipants,
   onAddParticipant,
   onOpenSettings,
+  onOpenContext,
   onTitleChanged,
 }: {
   title: string;
@@ -124,6 +139,7 @@ function Header({
   onOpenParticipants: () => void;
   onAddParticipant: () => void;
   onOpenSettings: () => void;
+  onOpenContext: () => void;
   onTitleChanged: () => void;
 }) {
   const cliCount = participants.filter((p) => p.transport === "cli").length;
@@ -158,6 +174,16 @@ function Header({
           />
         )}
         <ThemeToggle />
+        <Tooltip label="Context" side="bottom" align="end">
+          <button
+            type="button"
+            onClick={onOpenContext}
+            aria-label="Context"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border-default text-fg-secondary hover:bg-recessed hover:text-fg-primary"
+          >
+            <FolderGit2 size={14} strokeWidth={2} />
+          </button>
+        </Tooltip>
         <Tooltip label="Settings" side="bottom" align="end">
           <button
             type="button"
