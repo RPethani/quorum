@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  */
 export function TypingIndicator({ handle }: { handle: string }) {
   return (
-    <article className="flex gap-3 px-4 py-3 border-l-2 border-border-default opacity-80">
+    <article className="flex gap-3 px-4 py-3 bg-elevated opacity-80">
       <ParticipantAvatar participant={{ handle, transport: "cli" }} size={28} />
       <div className="min-w-0 flex-1">
         <header className="flex items-baseline gap-2">

@@ -27,6 +27,7 @@
   --color-canvas: var(--color-bg-canvas);
   --color-recessed: var(--color-bg-recessed);
   --color-elevated: var(--color-bg-elevated);
+  --color-sunken: var(--color-bg-sunken);
   --color-fg-primary: var(--color-fg-primary);
   --color-fg-secondary: var(--color-fg-secondary);
   --color-fg-tertiary: var(--color-fg-tertiary);

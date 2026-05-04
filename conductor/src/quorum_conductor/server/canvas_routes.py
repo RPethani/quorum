@@ -16,6 +16,7 @@ use the request/response helpers it already exposes
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace as dc_replace
 from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
@@ -306,6 +307,56 @@ def handle_artifact_delete(handler: QuorumHandler, filename: str) -> None:
     )
 
 
+
+
+# ---------------------------------------------------------------------- #
+# PATCH /api/canvas/state   {title}
+# ---------------------------------------------------------------------- #
+
+
+def handle_state_patch(handler: QuorumHandler) -> None:
+    """Update mutable workspace metadata.
+
+    Currently only ``title`` is editable; other state.yaml fields
+    (counter, cost, schema_version) are conductor-managed.
+    """
+    ws = _workspace(handler)
+    payload = handler._read_json_body()
+
+    try:
+        state = load_state(ws)
+    except StateError as e:
+        return handler._reply_json(HTTPStatus.NOT_FOUND, {"error": str(e)})
+
+    if "title" in payload:
+        new_title = str(payload["title"]).strip()
+        if not new_title:
+            return handler._reply_json(
+                HTTPStatus.BAD_REQUEST, {"error": "title cannot be empty"}
+            )
+        if len(new_title) > 200:
+            return handler._reply_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "title is too long (max 200 chars)"},
+            )
+        state = dc_replace(state, title=new_title)
+
+    save_state(ws, state)
+
+    handler._reply_json(
+        HTTPStatus.OK,
+        {
+            "title": state.title,
+            "created_at": _iso(state.created_at),
+            "message_counter": state.message_counter,
+            "cost": {
+                "spent": state.cost.spent,
+                "cap": state.cost.cap,
+                "enforce": state.cost.enforce,
+            },
+            "schema_version": state.schema_version,
+        },
+    )
 
 
 # ---------------------------------------------------------------------- #

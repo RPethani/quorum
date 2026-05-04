@@ -85,6 +85,16 @@ async function postJSON<T>(path: string, body: unknown = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function patchJSON<T>(path: string, body: unknown = {}): Promise<T> {
+  const res = await fetch(`${base()}${path}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new CanvasApiError(res.status, await res.text());
+  return res.json() as Promise<T>;
+}
+
 async function delJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${base()}${path}`, { method: "DELETE" });
   if (!res.ok) throw new CanvasApiError(res.status, await res.text());
@@ -107,6 +117,10 @@ export class CanvasApiError extends Error {
 
 export function getCanvasState(): Promise<CanvasState> {
   return getJSON<CanvasState>("/api/canvas/state");
+}
+
+export function updateCanvasState(patch: { title?: string }): Promise<CanvasState> {
+  return patchJSON<CanvasState>("/api/canvas/state", patch);
 }
 
 export function getCanvasMessages(): Promise<CanvasMessagesResponse> {

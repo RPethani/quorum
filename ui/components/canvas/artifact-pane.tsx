@@ -45,14 +45,19 @@ export function ArtifactPane({
         onSelect={onSelect}
         onAfterDelete={onAfterDelete}
       />
-      <div className="flex-1 overflow-y-auto">
-        {active ? (
-          <ArtifactBody detail={active} prevBody={prevBody} />
-        ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-fg-tertiary">
-            Select an artifact tab to view it.
-          </div>
-        )}
+      {/* Inset the artifact body in a card on the recessed pane so the
+          content sits on a clean, readable surface and the pane reads
+          as a "side panel" container around it. */}
+      <div className="flex-1 overflow-y-auto p-3">
+        <div className="h-full rounded-md border border-border-default bg-canvas shadow-sm overflow-hidden">
+          {active ? (
+            <ArtifactBody detail={active} prevBody={prevBody} />
+          ) : (
+            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-fg-tertiary">
+              Select an artifact tab to view it.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -105,14 +110,16 @@ function ArtifactTabs({
                 <FileText size={11} strokeWidth={1.5} />
                 <span className="max-w-[160px] truncate">{a.filename}</span>
               </button>
-              <button
-                type="button"
-                aria-label={`Delete ${a.filename}`}
-                onClick={() => void handleDelete(a.filename)}
-                className="rounded-sm p-0.5 text-fg-tertiary opacity-0 transition-opacity hover:bg-recessed hover:text-fg-primary group-hover:opacity-100"
-              >
-                <X size={11} strokeWidth={2.5} />
-              </button>
+              <Tooltip label={`Delete ${a.filename}`} side="bottom">
+                <button
+                  type="button"
+                  aria-label={`Delete ${a.filename}`}
+                  onClick={() => void handleDelete(a.filename)}
+                  className="rounded-sm p-0.5 text-fg-tertiary opacity-0 transition-opacity hover:bg-recessed hover:text-fg-primary group-hover:opacity-100"
+                >
+                  <X size={11} strokeWidth={2.5} />
+                </button>
+              </Tooltip>
             </div>
           </Tooltip>
         );
@@ -218,11 +225,13 @@ function _diffLines(before: string, after: string): DiffLine[] {
 
 function ArtifactEmpty() {
   return (
-    <div className="flex h-full items-center justify-center px-6 text-center">
-      <p className="max-w-xs text-sm text-fg-tertiary">
-        Artifacts will appear here when an AI starts maintaining one. Ask any participant to "track
-        this in a doc as we go" and they will create one for you.
-      </p>
+    <div className="flex h-full items-center justify-center p-6">
+      <div className="w-full max-w-xs rounded-md border border-dashed border-border-default bg-canvas/50 px-4 py-6 text-center">
+        <p className="text-sm text-fg-tertiary">
+          Artifacts will appear here when an AI starts maintaining one. Ask any participant to
+          "track this in a doc as we go" and they will create one for you.
+        </p>
+      </div>
     </div>
   );
 }

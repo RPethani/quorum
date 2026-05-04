@@ -174,6 +174,17 @@ class QuorumHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
+    # ----------------------------- PATCH ----------------------------- #
+    def do_PATCH(self) -> None:
+        url = urlparse(self.path)
+        path = url.path
+        try:
+            if path == "/api/canvas/state":
+                return canvas_routes.handle_state_patch(self)
+            return self._reply_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+        except Exception as exc:
+            self._reply_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+
     # ----------------------------- DELETE ---------------------------- #
     def do_DELETE(self) -> None:
         url = urlparse(self.path)

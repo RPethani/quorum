@@ -1,5 +1,6 @@
 "use client";
 
+import { Dialog } from "@/components/ui/dialog";
 import { ParticipantAvatar } from "@/components/workspace/participant-avatar";
 import {
   CanvasApiError,
@@ -36,12 +37,17 @@ export function MessageRow({
   return (
     <article
       className={cn(
-        "flex gap-3 px-4 py-3 border-l-2 transition-colors",
+        // Compact spacing: ~10px vertical padding + ~10px gap reads
+        // dense enough to scan a long thread without feeling crowded.
+        "flex gap-2.5 px-4 py-2.5 transition-colors",
+        // System / warning messages keep their distinct treatment so
+        // failures and other operator-attention items pop visually.
+        // Everything else (human + AI) renders on a clean white surface
+        // — no left-border accent, no per-author tint. The brand-glyph
+        // avatar already carries the "who said what" signal.
         isSystem
-          ? "border-accent-warning/60 bg-accent-warning-weak/30"
-          : isHuman
-            ? "border-accent-primary/40 bg-accent-primary-weak/10"
-            : "border-border-default hover:bg-recessed/40",
+          ? "border-l-2 border-accent-warning/60 bg-accent-warning-weak/30"
+          : "bg-elevated hover:bg-recessed/40",
       )}
     >
       {isSystem ? (
@@ -69,14 +75,13 @@ export function MessageRow({
           </time>
         </header>
 
-        <div
-          className={cn(
-            "mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg-primary",
-            isSystem && "text-fg-secondary",
-          )}
-        >
-          {visible}
-        </div>
+        {isSystem ? (
+          <SystemErrorBody body={visible} />
+        ) : (
+          <div className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-fg-primary">
+            {visible}
+          </div>
+        )}
 
         {remediation ? <RemediationCard rem={remediation} /> : null}
 
@@ -92,6 +97,56 @@ export function MessageRow({
         ) : null}
       </div>
     </article>
+  );
+}
+
+/**
+ * Render the body of an `@system` (error) message in collapsed form:
+ * just the first line, with a "Show full error" link that opens the
+ * complete text in a dialog. Remediation cards and the Retry button
+ * still render inline beneath this — only the verbose stack trace is
+ * tucked away.
+ */
+function SystemErrorBody({ body }: { body: string }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  // Whitespace-trim the first line so leading newlines from CLI
+  // output (e.g. "\n\nError: ...") don't render as an empty preview.
+  const trimmed = body.replace(/^\s+/, "");
+  const newlineIdx = trimmed.indexOf("\n");
+  const firstLine = newlineIdx === -1 ? trimmed : trimmed.slice(0, newlineIdx);
+  const hasMore = trimmed.length > firstLine.length;
+
+  return (
+    <>
+      <div className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-fg-secondary">
+        {firstLine}
+      </div>
+      {hasMore ? (
+        <button
+          type="button"
+          onClick={() => setDialogOpen(true)}
+          // `block` ensures the button takes its own line, so the
+          // sibling Retry button below sits below it (not next to it
+          // when no remediation card sits between them).
+          className="mt-1 block text-[11px] font-medium text-accent-primary hover:underline"
+        >
+          Show full error
+        </button>
+      ) : null}
+      {dialogOpen ? (
+        <Dialog
+          open
+          onClose={() => setDialogOpen(false)}
+          title="Error details"
+          description="Full output from the participant CLI."
+          size="lg"
+        >
+          <pre className="whitespace-pre-wrap break-words rounded-md border border-border-default bg-canvas px-3 py-2 font-mono text-[11px] leading-relaxed text-fg-primary">
+            {body}
+          </pre>
+        </Dialog>
+      ) : null}
+    </>
   );
 }
 
