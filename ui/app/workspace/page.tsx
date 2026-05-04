@@ -112,6 +112,7 @@ export default function CanvasPage() {
         open={contextDialogOpen}
         onClose={() => setContextDialogOpen(false)}
         digesterHandle={state?.digester_handle ?? ""}
+        onOpenSettings={() => setSettingsDialogOpen(true)}
       />
       <AddAgentDialog
         open={addAgentOpen}

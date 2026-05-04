@@ -27,6 +27,13 @@ def test_scaffold_creates_layout(tmp_path: Path) -> None:
     assert (target / "registers" / "participants.md").is_file()
     assert (target / ".trash").is_dir()
     assert (target / "state.yaml").is_file()
+    # Context defaults — phase-4 polish from `context-seeding.md`.
+    assert (target / "context").is_dir()
+    contextignore = target / "context" / ".contextignore"
+    assert contextignore.is_file()
+    body = contextignore.read_text(encoding="utf-8")
+    assert "package-lock.json" in body
+    assert ".env" in body
 
 
 def test_scaffold_state_yaml_shape(tmp_path: Path) -> None:

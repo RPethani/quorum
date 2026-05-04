@@ -32,11 +32,14 @@ export function ContextDialog({
   open,
   onClose,
   digesterHandle,
+  onOpenSettings,
 }: {
   open: boolean;
   onClose: () => void;
   /** Current `digester_handle` from state.yaml. Empty = none configured. */
   digesterHandle: string;
+  /** Open the Settings dialog (user has to pick a digester there). */
+  onOpenSettings: () => void;
 }) {
   const [entries, setEntries] = useState<CanvasContextEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -165,10 +168,19 @@ export function ContextDialog({
         />
 
         {!digesterHandle && repos.length > 0 ? (
-          <p className="rounded-md border border-accent-warning/40 bg-accent-warning-weak px-3 py-2 text-[12px] text-accent-warning">
-            No digester configured — repos won't be summarised until you pick one in Settings →
-            Default agents → Digester.
-          </p>
+          <div className="flex items-center justify-between gap-2 rounded-md border border-accent-warning/40 bg-accent-warning-weak px-3 py-2 text-[12px] text-accent-warning">
+            <span>No digester configured — repos won't be summarised until you pick one.</span>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenSettings();
+              }}
+              className="rounded-md border border-accent-warning/50 px-2 py-0.5 text-[11px] font-medium hover:bg-accent-warning-weak/70"
+            >
+              Open Settings
+            </button>
+          </div>
         ) : null}
 
         {error ? (
@@ -196,6 +208,10 @@ export function ContextDialog({
                     onDigest={() => digest(e.id)}
                     onRefresh={() => refresh(e.id)}
                     onRemove={() => remove(e.id)}
+                    onOpenSettings={() => {
+                      onClose();
+                      onOpenSettings();
+                    }}
                   />
                 ))}
               </Group>
@@ -377,6 +393,7 @@ function RepoRow({
   onDigest,
   onRefresh,
   onRemove,
+  onOpenSettings,
 }: {
   entry: CanvasContextEntry;
   busy: boolean;
@@ -384,6 +401,7 @@ function RepoRow({
   onDigest: () => void;
   onRefresh: () => void;
   onRemove: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <li className="rounded-md border border-border-default bg-canvas px-3 py-2">
@@ -403,7 +421,29 @@ function RepoRow({
             <p className="mt-0.5 text-[12px] text-fg-secondary">{entry.digest_summary}</p>
           ) : null}
           {entry.digest_error ? (
-            <p className="mt-0.5 text-[12px] text-accent-danger">{entry.digest_error}</p>
+            <div className="mt-1 flex items-center justify-between gap-2 rounded-md border border-accent-danger/30 bg-accent-danger-weak px-2 py-1 text-[11px]">
+              <span className="truncate text-accent-danger">{entry.digest_error}</span>
+              <div className="flex shrink-0 items-center gap-1">
+                {!canDigest ? (
+                  <button
+                    type="button"
+                    onClick={onOpenSettings}
+                    className="rounded-md border border-accent-danger/40 px-1.5 py-0.5 font-medium text-accent-danger hover:bg-accent-danger-weak/70"
+                  >
+                    Configure digester
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onDigest}
+                    disabled={busy}
+                    className="rounded-md border border-accent-danger/40 px-1.5 py-0.5 font-medium text-accent-danger hover:bg-accent-danger-weak/70 disabled:opacity-40"
+                  >
+                    Try again
+                  </button>
+                )}
+              </div>
+            </div>
           ) : null}
         </div>
         <div className="flex items-center gap-1 shrink-0">

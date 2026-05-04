@@ -32,6 +32,40 @@ STATE_SCHEMA_VERSION = 1
 # from the Settings UI (D16 / D17).
 DEFAULT_COST_CAP_USD = 50.0
 
+# Workspace-level ignores layered on top of the gitignore-defaults
+# baked into `context.gitignore.DEFAULT_PATTERNS`. We bias toward
+# *adding* secret/credential patterns so they don't bleed into a
+# digest if someone forgets to .gitignore them in the source repo.
+DEFAULT_CONTEXTIGNORE = """\
+# Quorum context-seeding ignores
+#
+# Patterns here apply to every repo digested for this workspace.
+# Syntax matches .gitignore (gitwildmatch). Edit freely; the
+# digester reads this on every run.
+
+# Lockfiles — large, machine-generated, low signal.
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+poetry.lock
+Cargo.lock
+
+# Secret-shaped files — defensive, not exhaustive.
+.env
+.env.*
+*.pem
+*.key
+secrets/
+credentials*
+
+# Common heavy artefacts not always covered by the source repo's .gitignore.
+*.zip
+*.tar
+*.gz
+*.bin
+"""
+
+
 # Header for `registers/participants.md`. Mirrors the format the
 # core `participants.parse_participants` helper expects so we can
 # reuse the existing parser without a fork.
@@ -80,6 +114,16 @@ def scaffold(
     (path / "artifacts").mkdir(exist_ok=True)
     (path / "registers").mkdir(exist_ok=True)
     (path / ".trash").mkdir(exist_ok=True)
+
+    # Context-seeding defaults (per `docs-specs/context-seeding.md`).
+    # We seed an empty `context/` + a `.contextignore` so the digester
+    # has sensible exclusions (build artifacts, lockfiles, secrets) the
+    # first time a repo is added.
+    context_dir = path / "context"
+    context_dir.mkdir(exist_ok=True)
+    (context_dir / ".contextignore").write_text(
+        DEFAULT_CONTEXTIGNORE, encoding="utf-8"
+    )
 
     (path / "canvas.md").touch()
     (path / "events.jsonl").touch()
