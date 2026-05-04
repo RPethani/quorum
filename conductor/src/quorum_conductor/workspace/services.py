@@ -520,17 +520,47 @@ def _detect_pkg_manager(ui_dir: Path) -> str | None:
 def _locate_ui_dir() -> Path | None:
     """Find the repo's `ui/` directory.
 
-    We rely on the editable install layout: this module lives at
-    `<repo>/conductor/src/quorum_conductor/workspace/services.py`, so
-    walking four parents up lands us at `<repo>/conductor/`. The UI
-    sits at `<repo>/ui/`.
+    Resolution order:
+
+    1. ``QUORUM_UI_DIR`` env var if set and points at a real
+       ``package.json``. Use this when the conductor is installed as
+       a uv tool (i.e. *not* an editable install) — the relative-path
+       walk below can't find the UI from the tool's site-packages.
+    2. The editable-install heuristic: this module lives at
+       ``<repo>/conductor/src/quorum_conductor/workspace/services.py``,
+       so walking four parents up lands us at ``<repo>/conductor/``;
+       the UI sits at ``<repo>/ui/``.
+    3. Walk *upward* from the current working directory looking for
+       any ancestor that contains both a ``conductor/pyproject.toml``
+       and a ``ui/package.json`` — handy when a user invokes
+       ``quorum init`` from inside the repo.
     """
+    import os
+
+    # 1. explicit override
+    override = os.environ.get("QUORUM_UI_DIR", "").strip()
+    if override:
+        candidate = Path(override).expanduser().resolve()
+        if (candidate / "package.json").is_file():
+            return candidate
+
+    # 2. editable-install heuristic
     here = Path(__file__).resolve()
-    # services.py → workspace/ → quorum_conductor/ → src/ → conductor/
     conductor_dir = here.parent.parent.parent.parent
     candidate = conductor_dir.parent / "ui"
     if (candidate / "package.json").is_file():
         return candidate
+
+    # 3. walk up from cwd
+    cwd = Path.cwd().resolve()
+    for parent in [cwd, *cwd.parents]:
+        candidate = parent / "ui"
+        if (
+            (candidate / "package.json").is_file()
+            and (parent / "conductor" / "pyproject.toml").is_file()
+        ):
+            return candidate
+
     return None
 
 

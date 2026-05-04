@@ -570,3 +570,29 @@ surface and retire the old one when feature parity is real.
   a long message into one pinned line. Skipped for MVP because the
   artifact pane absorbs the "scannable answer" role. Revisit once we
   see whether long messages actually hurt usability in practice.
+
+- **Concurrent workspaces — no port conflicts, no manual bookkeeping.**
+  Today (per D12) only one workspace runs at a time: `quorum init`
+  binds 8500/3000 by default and a second `quorum init` from another
+  folder collides on those ports. Future shape:
+
+  - Each workspace owns its own conductor + UI process pair.
+  - On `quorum init`, if a port is taken the launcher picks the next
+    free one (e.g. 8500 → 8501 → 8502 …, 3000 → 3001 …) and records
+    the chosen ports in that workspace's `state.yaml` (or
+    `runtime/services/*.json` as today).
+  - The UI dev server is told its conductor's URL via env var
+    (`NEXT_PUBLIC_QUORUM_API`) at spawn time, so each UI talks only
+    to its own conductor — no cross-workspace bleed.
+  - `quorum status` / `up` / `down` / `restart` / `logs` resolve the
+    workspace from `--path` (or cwd walk-up) and read the
+    per-workspace port records — never assume the default.
+  - The user can run several brainstorms at once: each opens at its
+    own URL printed by `init`. Stopping one doesn't touch the others.
+
+  Captured as a future enhancement; out of scope for MVP. The
+  underlying record format (`runtime/services/server.json` carries
+  `port`) and the ad-hoc `_port_is_free` check today already point
+  the right direction — what's missing is the auto-bump-on-busy
+  logic, the per-workspace UI→conductor wiring, and dropping the
+  D12 single-workspace assumption.

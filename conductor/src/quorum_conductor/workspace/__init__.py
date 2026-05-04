@@ -1,33 +1,14 @@
-"""Workspace lifecycle: init, status, archive/unarchive, bootstrapper, state.yaml I/O."""
+"""Workspace utilities — kept after the protocol retirement.
 
-from .archive import archive_workspace, unarchive_workspace
-from .bootstrapper import (
-    SEED_DELIBERATION_ID,
-    bootstrap_seed_deliberation,
-    needs_bootstrap,
-)
-from .init import InitOptions, init_workspace
-from .state import (
-    WorkspaceMode,
-    WorkspaceState,
-    WorkspaceStateModel,
-    load_state,
-    save_state,
-)
-from .status import status_summary
+The protocol-era lifecycle (init / state / archive / bootstrapper /
+status / asks / deliberation files) has been retired. What remains:
 
-__all__ = [
-    "SEED_DELIBERATION_ID",
-    "InitOptions",
-    "WorkspaceMode",
-    "WorkspaceState",
-    "WorkspaceStateModel",
-    "archive_workspace",
-    "bootstrap_seed_deliberation",
-    "init_workspace",
-    "load_state",
-    "needs_bootstrap",
-    "save_state",
-    "status_summary",
-    "unarchive_workspace",
-]
+- `identity`: best-effort default human handle detection.
+- `process`: PID/PGID helpers used by the service launcher.
+- `services`: start / stop / status for the conductor server + UI.
+"""
+
+from . import services
+from .identity import default_human_handle
+
+__all__ = ["default_human_handle", "services"]

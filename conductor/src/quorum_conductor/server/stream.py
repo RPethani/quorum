@@ -49,9 +49,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..canvas.state import StateError, load_state
 from ..events import read_events
 from ..paths import WorkspacePaths
-from ..workspace import status_summary
 
 POLL_INTERVAL_S: float = 0.25
 KEEPALIVE_INTERVAL_S: float = 15.0
@@ -192,34 +192,24 @@ def _mtime(path: Path) -> float:
 
 
 def _state_payload(paths: WorkspacePaths) -> dict[str, Any]:
+    """Tiny canvas-state snapshot for SSE clients.
+
+    Replaces the protocol-era summary. Just title + cost + message
+    counter, mirroring the shape `/api/state` returns.
+    """
     if not paths.state_yaml.is_file():
         return {}
     try:
-        summary = status_summary(paths)
-    except Exception:
+        state = load_state(paths.root)
+    except StateError:
         return {}
     return {
-        "workspace_id": summary.state.workspace_id,
-        "mode": summary.state.mode.value,
-        "state": summary.state.state.value,
-        "state_changed_at": summary.state.state_changed_at,
-        "counts": {
-            "deliberations": summary.deliberation_count,
-            "artifacts": summary.artifact_count,
-            "decisions": summary.decision_count,
-            "tasks": summary.task_count,
-            "inbox_pending": summary.inbox_pending_count,
-        },
-        "processes": {
-            "conductor_running": summary.conductor_running,
-            "ui_running": summary.ui_running,
-        },
+        "title": state.title,
+        "message_counter": state.message_counter,
         "cost": {
-            "spent_usd": summary.cost.spent_usd,
-            "ceiling_usd": summary.cost_ceiling_usd,
-            "fraction": summary.cost.fraction_of(summary.cost_ceiling_usd),
-            "invocations": summary.cost.invocations,
-            "enforce": summary.cost_enforce,
+            "spent": state.cost.spent,
+            "cap": state.cost.cap,
+            "enforce": state.cost.enforce,
         },
     }
 

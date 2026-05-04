@@ -1,0 +1,132 @@
+"""Real ``InvokeFn`` implementation that spawns participant CLIs.
+
+Per `docs-specs/canvas-redesign.md` S2, the canvas dispatcher
+exploits the fact that modern coding CLIs (Claude Code, Gemini
+CLI, etc.) read files in their cwd. Our invocation is therefore
+small:
+
+1. Look up the participant row in ``registers/participants.md`` to
+   find the ``cli_command``.
+2. Spawn that command **with cwd = workspace root**.
+3. Pipe a tiny system-prompt + instruction string into stdin.
+4. Return the captured stdout as the agent's reply.
+
+No protocol-era validation, no retries, no normalisation, no
+move-type machinery. The dispatcher converts whatever stdout we
+return into a regular message and parses out artifact emits.
+"""
+
+from __future__ import annotations
+
+import shlex
+import subprocess
+
+from quorum_conductor.core.participants import parse_participants
+
+from . import remediation
+from .dispatcher import InvocationRequest, InvocationResult, InvokeFn
+
+# Generous default timeout. Brainstorm replies over multi-page
+# context can take a minute or two; we stop short of unbounded so
+# a hung CLI doesn't park the dispatcher forever.
+DEFAULT_TIMEOUT_S = 600.0
+
+# System prompt rendered once per invocation. The placeholders are
+# filled by `.format()`. Keep this short — the user pays for every
+# character of system context every turn.
+DEFAULT_SYSTEM_PROMPT = """\
+You are participating as {handle} in a multi-AI brainstorming workspace.
+
+The full conversation lives in `canvas.md` at the workspace root.
+Live artifacts being maintained are in `artifacts/*.md`. Read what
+is relevant before you reply.
+
+Respond naturally to the most recent user message. To create or
+update an artifact, emit a fenced markdown code block whose
+language tag is `artifact:<filename>`. The conductor writes the
+block's body to that file.
+
+Example:
+
+    ```artifact:requirements.md
+    # Requirements
+    - …
+    ```
+
+Keep replies focused. The user values bite-sized turns over walls
+of text.
+"""
+
+
+def make_invoker(
+    *,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+) -> InvokeFn:
+    """Build the real ``InvokeFn`` the canvas dispatcher uses.
+
+    Parameters
+    ----------
+    timeout_s:
+        Subprocess timeout. Defaults to 10 minutes.
+    system_prompt:
+        Template rendered with ``{handle}`` and prepended to the
+        prompt. Override for tests or to change the contract.
+    """
+
+    def _invoke(req: InvocationRequest) -> InvocationResult:
+        participants_path = req.workspace / "registers" / "participants.md"
+        try:
+            participants = parse_participants(participants_path)
+        except Exception as e:
+            return InvocationResult(error=f"participants registry unreadable: {e}")
+
+        match = next((p for p in participants if p.handle == req.handle), None)
+        if match is None:
+            return InvocationResult(error=f"{req.handle} is not in the participants registry")
+        if not match.cli_command.strip():
+            return InvocationResult(error=f"{req.handle} has no cli_command configured")
+
+        prompt = _render_prompt(req.handle, system_prompt)
+
+        try:
+            result = subprocess.run(
+                shlex.split(match.cli_command),
+                input=prompt,
+                capture_output=True,
+                text=True,
+                cwd=str(req.workspace),
+                timeout=timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return InvocationResult(error=f"timed out after {timeout_s:.0f}s")
+        except FileNotFoundError:
+            return InvocationResult(
+                error=(
+                    f"CLI binary not found for {req.handle} — "
+                    f"check `cli_command` in registers/participants.md"
+                )
+            )
+        except Exception as e:
+            return InvocationResult(error=f"spawn failed: {e}")
+
+        if result.returncode != 0:
+            stderr_text = result.stderr or ""
+            stderr_excerpt = stderr_text.strip() or "(no stderr output)"
+            rem = remediation.detect(req.handle, stderr_text)
+            return InvocationResult(
+                error=f"exit {result.returncode}: {stderr_excerpt[:200]}",
+                remediation=rem,
+            )
+
+        return InvocationResult(reply=result.stdout)
+
+    return _invoke
+
+
+def _render_prompt(handle: str, template: str) -> str:
+    return (
+        template.format(handle=handle)
+        + "\n\nRespond to the latest user message in canvas.md."
+    )

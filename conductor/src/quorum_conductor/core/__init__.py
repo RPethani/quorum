@@ -1,56 +1,27 @@
-"""Conductor core: participants, routing-defaults, deliberation metadata, routing engine.
+"""Conductor core utilities — kept after the protocol retirement.
 
-Pure-logic layer. No subprocess, no I/O beyond reading workspace files.
-The conductor's loop (Phase 4f) drives this; the routing engine itself
-has no notion of time or concurrency.
+Only the bits the canvas surface still uses live here:
+
+- `participants`: parse `registers/participants.md`.
+- `participants_edit`: append rows to it (from the UI's "+ Add" flow).
+
+Cost tracking will be rewired against canvas events later — for now
+the canvas state.yaml's `cost` block is updated lazily by future code
+paths and read via `canvas.state.load_state`.
 """
 
-from .config import WorkspaceConfig, load_workspace_config
-from .contributions import ContributionsView, parse_contributions
-from .cost import CostSummary, compute_cost
-from .deliberation import DeliberationMeta, DeliberationRoles, load_deliberation
-from .loop import BlockedItem, PendingItem, PlanResult, plan
-from .participants import Participant, parse_participants
-from .routing import (
-    Alternative,
-    NoHandleAvailableError,
-    RoutingDecision,
-    RoutingLayer,
-    route,
-)
-from .routing_defaults import RoutingDefaults, load_routing_defaults
-from .validator import (
-    FullMoveValidation,
-    render_validation_feedback,
-    required_sections_for,
-    validate_move,
+from .participants import Participant, ParticipantsParseError, parse_participants
+from .participants_edit import (
+    NewParticipant,
+    ParticipantsEditError,
+    append_participant,
 )
 
 __all__ = [
-    "Alternative",
-    "BlockedItem",
-    "ContributionsView",
-    "CostSummary",
-    "DeliberationMeta",
-    "DeliberationRoles",
-    "FullMoveValidation",
-    "NoHandleAvailableError",
+    "NewParticipant",
     "Participant",
-    "PendingItem",
-    "PlanResult",
-    "RoutingDecision",
-    "RoutingDefaults",
-    "RoutingLayer",
-    "WorkspaceConfig",
-    "compute_cost",
-    "load_deliberation",
-    "load_routing_defaults",
-    "load_workspace_config",
-    "parse_contributions",
+    "ParticipantsEditError",
+    "ParticipantsParseError",
+    "append_participant",
     "parse_participants",
-    "plan",
-    "render_validation_feedback",
-    "required_sections_for",
-    "route",
-    "validate_move",
 ]

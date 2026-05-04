@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from quorum_conductor.canvas.workspace import scaffold
+from quorum_conductor.paths import WorkspacePaths
 from quorum_conductor.transport.doctor import doctor_check
-from quorum_conductor.workspace import InitOptions, init_workspace
 
 
 def _set_participants(paths_root: Path, body: str) -> None:
@@ -13,25 +14,21 @@ def _set_participants(paths_root: Path, body: str) -> None:
 
 
 def test_doctor_returns_empty_when_no_handles(tmp_path: Path) -> None:
-    paths = init_workspace(
-        InitOptions(target=tmp_path / "quorum", human_handle="@human-tester"),
-    )
-    # Default participants.md only registers the human handle; the doctor
-    # should report it but with on_path=None (manual transport).
-    records = doctor_check(paths)
-    assert any(r.handle == "@human-tester" and r.on_path is None for r in records)
+    target = tmp_path / "ws"
+    scaffold(target)
+    paths = WorkspacePaths(root=target)
+    # Fresh canvas workspace has no participants — doctor returns empty.
+    assert doctor_check(paths) == []
 
 
 def test_doctor_marks_missing_cli_as_failed(tmp_path: Path) -> None:
-    paths = init_workspace(InitOptions(target=tmp_path / "quorum"))
+    target = tmp_path / "ws"
+    scaffold(target)
+    paths = WorkspacePaths(root=target)
     _set_participants(
         paths.root,
         """\
----
-schema_version: 0.1
----
-
-# Participants Registry
+# Participants
 
 | Handle | Display Name | CLI Command | Model | Transport | Quota | Permission Capability | Account Label | Health |
 |---|---|---|---|---|---|---|---|---|
@@ -45,17 +42,13 @@ schema_version: 0.1
 
 
 def test_doctor_recognises_a_real_binary(tmp_path: Path) -> None:
-    paths = init_workspace(InitOptions(target=tmp_path / "quorum"))
-    # `python3` is virtually guaranteed to be on PATH in any environment
-    # where these tests run, including CI.
+    target = tmp_path / "ws"
+    scaffold(target)
+    paths = WorkspacePaths(root=target)
     _set_participants(
         paths.root,
         """\
----
-schema_version: 0.1
----
-
-# Participants Registry
+# Participants
 
 | Handle | Display Name | CLI Command | Model | Transport | Quota | Permission Capability | Account Label | Health |
 |---|---|---|---|---|---|---|---|---|

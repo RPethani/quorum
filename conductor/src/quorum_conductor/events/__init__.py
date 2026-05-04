@@ -1,55 +1,12 @@
-"""Append-only structured event log (`runtime/events/events.jsonl`).
+"""Append-only structured event log (`events.jsonl`).
 
-Per design-doc §10.5 events are the workspace's history. The complement
-to `state.yaml`, which is the *current* truth: events answer "what
-happened, when, in what order?"; state.yaml answers "where are we?".
-
-This module owns:
-
-  * the event schema (one type per dataclass below)
-  * the `EventLogger` that appends serialised events to events.jsonl
-  * the `read_events()` helper for tests, status, and the future UI feed
-
-Append discipline: each event is one line of UTF-8 JSON ending with
-`\\n`. Line writes ≤PIPE_BUF are atomic on POSIX, so concurrent
-appenders (the future parallel loop in 4f) can safely write without
-extra locking. Daily rotation lives in 4f's loop, not here.
+After the protocol retirement, only the framework remains exposed —
+`Event`, `EventLogger`, `read_events`. The protocol-era event subclasses
+(MoveAppended, AgentStarted, RoutingDecisionEvent, …) still live in
+`log.py` for binary-compat with existing event-log files but aren't
+re-exported.
 """
 
-from .log import (
-    EVENT_SCHEMA_VERSION,
-    AgentCompleted,
-    AgentFailed,
-    AgentStarted,
-    ContextLoaded,
-    DigestCompleted,
-    DigesterChosen,
-    DigestStarted,
-    Event,
-    EventLogger,
-    MoveAppended,
-    PermissionDecided,
-    PermissionRequested,
-    RoutingDecisionEvent,
-    ValidationFailed,
-    read_events,
-)
+from .log import EVENT_SCHEMA_VERSION, Event, EventLogger, read_events
 
-__all__ = [
-    "EVENT_SCHEMA_VERSION",
-    "AgentCompleted",
-    "AgentFailed",
-    "AgentStarted",
-    "ContextLoaded",
-    "DigestCompleted",
-    "DigestStarted",
-    "DigesterChosen",
-    "Event",
-    "EventLogger",
-    "MoveAppended",
-    "PermissionDecided",
-    "PermissionRequested",
-    "RoutingDecisionEvent",
-    "ValidationFailed",
-    "read_events",
-]
+__all__ = ["EVENT_SCHEMA_VERSION", "Event", "EventLogger", "read_events"]
