@@ -31,6 +31,15 @@ from pathlib import Path
 
 from . import __version__
 from .canvas.workspace import scaffold as canvas_scaffold
+from .context import (
+    ContextOperationError,
+    add_doc,
+    add_note,
+    add_repo,
+    load_manifest,
+    refresh as context_refresh,
+    remove as context_remove,
+)
 from .events import EventLogger  # noqa: F401 — kept exported via package
 from .paths import WorkspaceNotFoundError, WorkspacePaths, require_workspace
 from .server import DEFAULT_HOST, DEFAULT_PORT, serve_forever
@@ -72,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         WorkspaceNotFoundError,
         ProcessError,
         ServiceError,
+        ContextOperationError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -174,6 +184,48 @@ def _build_parser() -> argparse.ArgumentParser:
     p_logs.add_argument("-f", "--follow", action="store_true", help="Follow new lines as they appear.")
     p_logs.add_argument("-n", "--lines", type=int, default=80, help="Show the last N lines (default 80).")
     p_logs.set_defaults(handler=_cmd_logs)
+
+    # context — manage context-seeding entries (repos, docs, notes).
+    p_ctx = sub.add_parser(
+        "context",
+        help="List / add / remove / refresh context entries (repos, docs, notes).",
+    )
+    ctx_sub = p_ctx.add_subparsers(dest="context_command", metavar="<subcommand>")
+
+    p_ctx_list = ctx_sub.add_parser("list", help="List context entries.")
+    _add_path(p_ctx_list)
+    p_ctx_list.set_defaults(handler=_cmd_context_list)
+
+    p_ctx_add = ctx_sub.add_parser(
+        "add",
+        help="Add a repo (directory) or doc (file) by path.",
+    )
+    _add_path(p_ctx_add)
+    p_ctx_add.add_argument("source", help="Filesystem path to a directory (repo) or file (doc).")
+    p_ctx_add.add_argument("--name", default=None, help="Display name (default: basename of source).")
+    p_ctx_add.set_defaults(handler=_cmd_context_add)
+
+    p_ctx_note = ctx_sub.add_parser(
+        "add-note",
+        help="Add a free-form note. Body read from --body or stdin.",
+    )
+    _add_path(p_ctx_note)
+    p_ctx_note.add_argument("name", help="Short name for the note.")
+    p_ctx_note.add_argument("--body", default=None, help="Note body (default: read from stdin).")
+    p_ctx_note.set_defaults(handler=_cmd_context_add_note)
+
+    p_ctx_rm = ctx_sub.add_parser("remove", help="Remove a context entry by id.")
+    _add_path(p_ctx_rm)
+    p_ctx_rm.add_argument("entry_id", help="Entry id, e.g. ctx-0003.")
+    p_ctx_rm.set_defaults(handler=_cmd_context_remove)
+
+    p_ctx_refresh = ctx_sub.add_parser(
+        "refresh",
+        help="Mark a repo entry as pending re-digestion (phase-2 picks it up).",
+    )
+    _add_path(p_ctx_refresh)
+    p_ctx_refresh.add_argument("entry_id", help="Entry id, e.g. ctx-0001.")
+    p_ctx_refresh.set_defaults(handler=_cmd_context_refresh)
 
     return parser
 
@@ -323,6 +375,66 @@ def _cmd_restart(args: argparse.Namespace) -> int:
         s = service_restart(paths, name)
         marker = "●" if s.state == "running" else "○"
         print(f"  {name:<7} {marker} {s.state:<8} http://127.0.0.1:{s.port}   pid={s.pid}")
+    return 0
+
+
+def _cmd_context_list(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    manifest = load_manifest(paths.root)
+    if not manifest.entries:
+        print("(no context entries)")
+        return 0
+    for e in manifest.entries:
+        head = f"{e.id}  {e.kind:<5}  {e.name}"
+        if e.kind == "repo":
+            status = e.digest_status or "—"
+            stale = "  [stale]" if e.stale else ""
+            print(f"{head}   ({e.source})  status={status}{stale}")
+        elif e.kind == "doc":
+            print(f"{head}   ({e.source})")
+        else:
+            print(head)
+    return 0
+
+
+def _cmd_context_add(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    src = Path(args.source).expanduser()
+    if not src.exists():
+        print(f"error: no such path: {src}", file=sys.stderr)
+        return 1
+    if src.is_dir():
+        entry = add_repo(paths.root, src, name=args.name)
+        kind = "repo"
+    elif src.is_file():
+        entry = add_doc(paths.root, src, name=args.name)
+        kind = "doc"
+    else:
+        print(f"error: not a file or directory: {src}", file=sys.stderr)
+        return 1
+    print(f"added {kind} {entry.id}: {entry.name}")
+    return 0
+
+
+def _cmd_context_add_note(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    body = args.body if args.body is not None else sys.stdin.read()
+    entry = add_note(paths.root, args.name, body)
+    print(f"added note {entry.id}: {entry.name}")
+    return 0
+
+
+def _cmd_context_remove(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    entry = context_remove(paths.root, args.entry_id)
+    print(f"removed {entry.kind} {entry.id}: {entry.name}")
+    return 0
+
+
+def _cmd_context_refresh(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    entry = context_refresh(paths.root, args.entry_id)
+    print(f"marked {entry.id} as pending — digester will re-run it")
     return 0
 
 
