@@ -44,6 +44,12 @@ class WorkspaceState:
     created_at: datetime
     message_counter: int = 0
     cost: CostState = field(default_factory=CostState)
+    digester_handle: str = ""
+    """Participant handle (e.g. ``@claude-opus``) used to summarise
+    repos added via the context-seeding flow. Empty means no
+    digester is configured — pending repos sit at status ``pending``
+    until the user picks one (Settings → Default agents → Digester
+    in phase 3)."""
     schema_version: int = STATE_SCHEMA_VERSION
 
 
@@ -74,6 +80,7 @@ def load_state(workspace: Path) -> WorkspaceState:
             cap=float(cost_raw.get("cap", DEFAULT_COST_CAP_USD)),
             enforce=bool(cost_raw.get("enforce", True)),
         ),
+        digester_handle=str(raw.get("digester_handle", "") or ""),
         schema_version=int(raw.get("schema_version", STATE_SCHEMA_VERSION)),
     )
 
@@ -116,6 +123,7 @@ def _render(state: WorkspaceState) -> str:
             "cap": state.cost.cap,
             "enforce": state.cost.enforce,
         },
+        "digester_handle": state.digester_handle,
     }
     return yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
 

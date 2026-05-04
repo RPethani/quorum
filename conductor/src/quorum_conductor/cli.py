@@ -33,10 +33,14 @@ from . import __version__
 from .canvas.workspace import scaffold as canvas_scaffold
 from .context import (
     ContextOperationError,
+    DigestError,
     add_doc,
     add_note,
     add_repo,
+    digest_repo,
     load_manifest,
+    make_digest_invoker,
+    mark_stale_repos,
     refresh as context_refresh,
     remove as context_remove,
 )
@@ -82,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         ProcessError,
         ServiceError,
         ContextOperationError,
+        DigestError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -221,11 +226,31 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_ctx_refresh = ctx_sub.add_parser(
         "refresh",
-        help="Mark a repo entry as pending re-digestion (phase-2 picks it up).",
+        help="Mark a repo entry as pending re-digestion.",
     )
     _add_path(p_ctx_refresh)
     p_ctx_refresh.add_argument("entry_id", help="Entry id, e.g. ctx-0001.")
     p_ctx_refresh.set_defaults(handler=_cmd_context_refresh)
+
+    p_ctx_digest = ctx_sub.add_parser(
+        "digest",
+        help="Synchronously digest a repo entry using the configured digester.",
+    )
+    _add_path(p_ctx_digest)
+    p_ctx_digest.add_argument("entry_id", help="Entry id, e.g. ctx-0001.")
+    p_ctx_digest.add_argument(
+        "--handle",
+        default=None,
+        help="Override the digester handle (default: state.yaml `digester_handle`).",
+    )
+    p_ctx_digest.set_defaults(handler=_cmd_context_digest)
+
+    p_ctx_stale = ctx_sub.add_parser(
+        "stale",
+        help="Re-check repo HEADs and update the stale flag in the manifest.",
+    )
+    _add_path(p_ctx_stale)
+    p_ctx_stale.set_defaults(handler=_cmd_context_stale)
 
     return parser
 
@@ -435,6 +460,42 @@ def _cmd_context_refresh(args: argparse.Namespace) -> int:
     paths = _resolve_workspace(args)
     entry = context_refresh(paths.root, args.entry_id)
     print(f"marked {entry.id} as pending — digester will re-run it")
+    return 0
+
+
+def _cmd_context_digest(args: argparse.Namespace) -> int:
+    from .canvas.state import load_state
+
+    paths = _resolve_workspace(args)
+    handle = (args.handle or load_state(paths.root).digester_handle).strip()
+    if not handle:
+        print(
+            "error: no digester handle configured. Pass --handle=<participant> "
+            "or set `digester_handle` in state.yaml.",
+            file=sys.stderr,
+        )
+        return 1
+
+    invoke = make_digest_invoker()
+    print(f"digesting {args.entry_id} via {handle}…")
+    entry = digest_repo(paths.root, args.entry_id, invoke=invoke, handle=handle)
+    if entry.digest_status == "ready":
+        print(f"  ready: {entry.digest_summary}")
+        return 0
+    print(f"  failed: {entry.digest_error}", file=sys.stderr)
+    return 1
+
+
+def _cmd_context_stale(args: argparse.Namespace) -> int:
+    paths = _resolve_workspace(args)
+    manifest = mark_stale_repos(paths.root)
+    repos = [e for e in manifest.entries if e.kind == "repo"]
+    if not repos:
+        print("(no repo entries)")
+        return 0
+    for e in repos:
+        flag = "  [stale]" if e.stale else ""
+        print(f"{e.id}  {e.name}{flag}")
     return 0
 
 

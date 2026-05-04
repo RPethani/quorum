@@ -5,6 +5,16 @@ CLI; phase 2 wires the digester; phase 3 ships UI + HTTP API; phase
 4 polishes (stale detection, ignore overrides).
 """
 
+from .digester import (
+    DIGEST_SYSTEM_PROMPT,
+    DigestError,
+    DigestInvokeFn,
+    DigestRequest,
+    DigestResult,
+    digest_repo,
+    make_digest_invoker,
+    mark_stale_repos,
+)
 from .gitignore import (
     CONTEXTIGNORE_FILENAME,
     DEFAULT_PATTERNS,
@@ -42,6 +52,11 @@ __all__ = [
     "ContextManifest",
     "ContextOperationError",
     "DEFAULT_PATTERNS",
+    "DIGEST_SYSTEM_PROMPT",
+    "DigestError",
+    "DigestInvokeFn",
+    "DigestRequest",
+    "DigestResult",
     "IgnoreMatcher",
     "MANIFEST_FILENAME",
     "ManifestError",
@@ -51,10 +66,13 @@ __all__ = [
     "add_note",
     "add_repo",
     "allocate_id",
+    "digest_repo",
     "find_entry",
     "index_path",
     "load_manifest",
+    "make_digest_invoker",
     "manifest_path",
+    "mark_stale_repos",
     "refresh",
     "remove",
     "render_index",
