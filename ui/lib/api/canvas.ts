@@ -160,6 +160,24 @@ export function deleteCanvasArtifact(
 }
 
 // ---------------------------------------------------------------------- //
+// Filesystem picker — powers the Browse… buttons in the Context dialog.
+// ---------------------------------------------------------------------- //
+
+export type FsEntry = { name: string; path: string; is_dir: boolean };
+export type FsListing = {
+  path: string;
+  parent: string | null;
+  home: string;
+  entries: FsEntry[];
+};
+
+export function listFs(path: string | null, mode: "dirs" | "files"): Promise<FsListing> {
+  const qs = new URLSearchParams({ mode });
+  if (path) qs.set("path", path);
+  return getJSON<FsListing>(`/api/fs/list?${qs.toString()}`);
+}
+
+// ---------------------------------------------------------------------- //
 // Context entries
 // ---------------------------------------------------------------------- //
 

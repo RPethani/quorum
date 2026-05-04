@@ -149,6 +149,9 @@ class QuorumHandler(BaseHTTPRequestHandler):
             if path == "/api/canvas/context":
                 return canvas_routes.reply_context_list(self)
 
+            if path == "/api/fs/list":
+                return self._reply_fs_list(query)
+
             if path == "/api/participants":
                 return self._reply_participants()
 
@@ -273,6 +276,51 @@ class QuorumHandler(BaseHTTPRequestHandler):
         except ParticipantsEditError as e:
             return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
         self._reply_json(HTTPStatus.OK, {"handle": new.handle})
+
+    def _reply_fs_list(self, query: dict[str, list[str]]) -> None:
+        """List children of a directory on the host filesystem.
+
+        Powers the Browse… picker so users don't have to type absolute
+        paths. The server is bound to 127.0.0.1, so local-only by
+        construction — same threat model as the rest of the conductor.
+        """
+        from pathlib import Path as _Path
+
+        raw = query.get("path", [""])[0] or str(_Path.home())
+        mode = query.get("mode", ["dirs"])[0]
+        show_hidden = query.get("show_hidden", ["0"])[0] == "1"
+        try:
+            target = _Path(raw).expanduser().resolve()
+        except OSError as exc:
+            return self._reply_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        if not target.is_dir():
+            return self._reply_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                {"error": f"{target} is not a directory"},
+            )
+        entries: list[dict[str, Any]] = []
+        try:
+            for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+                if not show_hidden and child.name.startswith("."):
+                    continue
+                is_dir = child.is_dir()
+                if mode == "dirs" and not is_dir:
+                    continue
+                entries.append({"name": child.name, "path": str(child), "is_dir": is_dir})
+        except PermissionError:
+            return self._reply_json(
+                HTTPStatus.FORBIDDEN, {"error": f"permission denied reading {target}"}
+            )
+        parent = str(target.parent) if target != target.parent else None
+        self._reply_json(
+            HTTPStatus.OK,
+            {
+                "path": str(target),
+                "parent": parent,
+                "home": str(_Path.home()),
+                "entries": entries,
+            },
+        )
 
     def _reply_events(self, query: dict[str, list[str]]) -> None:
         since = 0

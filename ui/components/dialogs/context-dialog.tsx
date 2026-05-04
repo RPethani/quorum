@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { FilePicker } from "@/components/ui/file-picker";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
@@ -17,7 +18,17 @@ import {
   updateCanvasState,
 } from "@/lib/api/canvas";
 import { cn } from "@/lib/utils";
-import { FileText, FolderGit2, Loader2, RefreshCw, StickyNote, Trash2, Wand2 } from "lucide-react";
+import {
+  CheckCircle2,
+  FileText,
+  FolderGit2,
+  FolderOpen,
+  Loader2,
+  RefreshCw,
+  StickyNote,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 type AddKind = "repo" | "doc" | "note";
@@ -51,6 +62,8 @@ export function ContextDialog({
   const [addName, setAddName] = useState("");
   const [addBody, setAddBody] = useState("");
   const [addSubmitting, setAddSubmitting] = useState(false);
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -71,23 +84,27 @@ export function ContextDialog({
     setAddPath("");
     setAddName("");
     setAddBody("");
+    setJustAdded(null);
     void reload();
   }, [open, reload]);
 
   async function submitAdd() {
     setAddSubmitting(true);
     setError(null);
+    setJustAdded(null);
     try {
+      let added: { entry: CanvasContextEntry };
       if (addKind === "repo") {
-        await addCanvasRepo(addPath.trim(), addName.trim() || undefined);
+        added = await addCanvasRepo(addPath.trim(), addName.trim() || undefined);
       } else if (addKind === "doc") {
-        await addCanvasDoc(addPath.trim(), addName.trim() || undefined);
+        added = await addCanvasDoc(addPath.trim(), addName.trim() || undefined);
       } else {
-        await addCanvasNote(addName.trim(), addBody);
+        added = await addCanvasNote(addName.trim(), addBody);
       }
       setAddPath("");
       setAddName("");
       setAddBody("");
+      setJustAdded(added.entry.name);
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -155,7 +172,10 @@ export function ContextDialog({
       <div className="flex flex-col gap-5">
         <AddSection
           kind={addKind}
-          onKindChange={setAddKind}
+          onKindChange={(k) => {
+            setAddKind(k);
+            setJustAdded(null);
+          }}
           path={addPath}
           onPathChange={setAddPath}
           name={addName}
@@ -165,6 +185,19 @@ export function ContextDialog({
           submitting={addSubmitting}
           valid={addValid}
           onSubmit={submitAdd}
+          onBrowse={() => setPickerOpen(true)}
+          justAdded={justAdded}
+        />
+
+        <FilePicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          mode={addKind === "doc" ? "files" : "dirs"}
+          title={addKind === "doc" ? "Pick a document" : "Pick a repository"}
+          onPick={(p) => {
+            setAddPath(p);
+            setPickerOpen(false);
+          }}
         />
 
         {!digesterHandle && repos.length > 0 ? (
@@ -263,6 +296,8 @@ function AddSection({
   submitting,
   valid,
   onSubmit,
+  onBrowse,
+  justAdded,
 }: {
   kind: AddKind;
   onKindChange: (k: AddKind) => void;
@@ -275,6 +310,8 @@ function AddSection({
   submitting: boolean;
   valid: boolean;
   onSubmit: () => void;
+  onBrowse: () => void;
+  justAdded: string | null;
 }) {
   const tabs: { value: AddKind; label: string }[] = [
     { value: "repo", label: "Repo" },
@@ -309,19 +346,26 @@ function AddSection({
       {kind !== "note" ? (
         <div className="space-y-2">
           <Field
-            label="Absolute path"
+            label={kind === "repo" ? "Repository folder" : "Document file"}
             hint={
               kind === "repo"
-                ? "Path to a directory. Quorum symlinks it under context/repos/."
-                : "Path to a file. Quorum copies it under context/docs/."
+                ? "Pick a directory or paste an absolute path. Quorum symlinks it under context/repos/."
+                : "Pick a file or paste an absolute path. Quorum copies it under context/docs/."
             }
           >
-            <Input
-              value={path}
-              onChange={(e) => onPathChange(e.target.value)}
-              placeholder={kind === "repo" ? "/Users/you/code/v2-app" : "/Users/you/Notes/spec.md"}
-              className="font-mono text-[12px]"
-            />
+            <div className="flex gap-2">
+              <Input
+                value={path}
+                onChange={(e) => onPathChange(e.target.value)}
+                placeholder={
+                  kind === "repo" ? "/Users/you/code/v2-app" : "/Users/you/Notes/spec.md"
+                }
+                className="font-mono text-[12px]"
+              />
+              <Button type="button" variant="outline" size="sm" onClick={onBrowse}>
+                <FolderOpen size={13} strokeWidth={2} /> Browse…
+              </Button>
+            </div>
           </Field>
           <Field label="Display name" hint="Optional. Defaults to the basename.">
             <Input
@@ -352,11 +396,23 @@ function AddSection({
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-end">
-        <Button onClick={onSubmit} disabled={!valid || submitting} variant="primary">
-          {submitting ? <Loader2 size={14} className="animate-spin" /> : null}
-          Add
-        </Button>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-[11px] text-fg-tertiary">
+          {kind === "note"
+            ? "Add as many notes as you like — the form clears after each one."
+            : `Add multiple ${kind === "repo" ? "repos" : "documents"} — the form clears after each one.`}
+        </p>
+        <div className="flex items-center gap-2">
+          {justAdded ? (
+            <span className="inline-flex items-center gap-1 rounded-md border border-accent-success/40 bg-accent-success-weak px-2 py-0.5 text-[11px] font-medium text-accent-success">
+              <CheckCircle2 size={12} /> Added “{justAdded}” — keep going
+            </span>
+          ) : null}
+          <Button onClick={onSubmit} disabled={!valid || submitting} variant="primary">
+            {submitting ? <Loader2 size={14} className="animate-spin" /> : null}
+            Add
+          </Button>
+        </div>
       </div>
     </section>
   );
