@@ -211,10 +211,23 @@ def tail_log(paths: WorkspacePaths, name: ServiceName, *, n: int = 80) -> str:
 
 def _start_server(paths: WorkspacePaths, *, port: int) -> ServiceStatus:
     if not _port_is_free(port):
+        # The port is bound but we have no pid record (otherwise the
+        # caller's `status() == 'running'` short-circuit in `start()`
+        # would have returned earlier). Two cases worth distinguishing:
+        # (1) it's our own conductor, started outside `services.start`
+        #     (e.g. a stray `uv run python -m quorum_conductor serve`).
+        #     We adopt it: probe /healthz, write a record pinned to the
+        #     listener's pid so a subsequent `/down` can reach it.
+        # (2) it's something else entirely (another `quorum` from a
+        #     sibling workspace, an unrelated server, etc.). Refuse
+        #     and tell the user *which* pid is in the way.
+        adopted = _try_adopt_existing_server(paths, port)
+        if adopted is not None:
+            return adopted
+        owner = _port_owner_hint(port)
         raise ServiceError(
-            f"port {port} is already in use — something else (maybe another "
-            f"`quorum serve`) is bound there. Stop it first, or pass "
-            f"`--server-port <other>` to use a different port."
+            f"port {port} is already in use{owner}. Stop the other process, "
+            f"or pass `--server-port <other>` to use a different port."
         )
     actual_port = port
     log_path = _log_path(paths, "server")
@@ -282,10 +295,13 @@ def _start_ui(paths: WorkspacePaths, *, ui_port: int, server_port: int) -> Servi
             "re-run."
         )
     if not _port_is_free(ui_port):
+        adopted = _try_adopt_existing_ui(paths, ui_port)
+        if adopted is not None:
+            return adopted
+        owner = _port_owner_hint(ui_port)
         raise ServiceError(
-            f"port {ui_port} is already in use — something else (maybe a "
-            f"`pnpm dev` from another terminal) is bound there. Stop it "
-            f"first, or pass `--ui-port <other>` to use a different port."
+            f"port {ui_port} is already in use{owner}. Stop the other "
+            f"process, or pass `--ui-port <other>` to use a different port."
         )
     actual_port = ui_port
     log_path = _log_path(paths, "ui")
@@ -420,6 +436,91 @@ def _pgid(pid: int) -> int | None:
 def _send_signal(target: int, sig: signal.Signals) -> None:
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(target, sig)
+
+
+def _port_owner_pid(port: int) -> int | None:
+    """Best-effort: return the PID listening on TCP `port`, or None
+    if we can't tell (lsof missing, no listener, permission, etc.).
+    """
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-iTCP:%d" % port, "-sTCP:LISTEN", "-Fp"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("p"):
+            try:
+                return int(line[1:])
+            except ValueError:
+                return None
+    return None
+
+
+def _port_owner_hint(port: int) -> str:
+    """A `, in use by pid …` fragment for ServiceError messages."""
+    pid = _port_owner_pid(port)
+    if pid is None:
+        return ""
+    return f" (pid {pid} is listening — `kill {pid}` if it's a stray)"
+
+
+def _try_adopt_existing_server(paths: WorkspacePaths, port: int) -> ServiceStatus | None:
+    """If a process bound to `port` answers our `/healthz`, treat it as
+    our conductor and write a pid record so future `down`/`restart`
+    reach it. Returns the resulting status, or None if it isn't us.
+    """
+    if not _is_responsive_conductor(port):
+        return None
+    pid = _port_owner_pid(port)
+    if pid is None:
+        return None
+    _save_record(
+        paths,
+        "server",
+        {
+            "pid": pid,
+            "pgid": _pgid(pid),
+            "port": port,
+            "started_at": _now_iso(),
+        },
+    )
+    return status(paths, "server")
+
+
+def _try_adopt_existing_ui(paths: WorkspacePaths, port: int) -> ServiceStatus | None:
+    """Mirror of the server adoption for the UI's dev server. We don't
+    have a healthz to probe, so we just check the port is owned by a
+    live process and trust the user that this is theirs."""
+    pid = _port_owner_pid(port)
+    if pid is None or not _alive(pid):
+        return None
+    _save_record(
+        paths,
+        "ui",
+        {
+            "pid": pid,
+            "pgid": _pgid(pid),
+            "port": port,
+            "started_at": _now_iso(),
+        },
+    )
+    return status(paths, "ui")
+
+
+def _is_responsive_conductor(port: int) -> bool:
+    """True iff GET http://127.0.0.1:<port>/healthz returns 200 'ok'."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5) as s:
+            s.sendall(b"GET /healthz HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+            data = s.recv(256)
+    except OSError:
+        return False
+    return b"200" in data and b"ok" in data
 
 
 def _port_is_free(port: int) -> bool:

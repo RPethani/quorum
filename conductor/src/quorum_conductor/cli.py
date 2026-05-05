@@ -66,10 +66,12 @@ service_tail_log = _services.tail_log
 def main(argv: list[str] | None = None) -> int:
     real_argv = sys.argv[1:] if argv is None else argv
     if not real_argv:
-        # Bare `quorum` — print help. The interactive shell that used to
-        # live here was protocol-shaped and has been retired.
-        _build_parser().print_help()
-        return 0
+        # Bare `quorum` drops into the slash-command REPL — exact
+        # behaviour as the protocol-era shell, but the command surface
+        # is canvas-shaped now.
+        from .tui import run_shell
+
+        return run_shell()
 
     parser = _build_parser()
     args = parser.parse_args(argv)
